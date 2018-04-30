@@ -1,5 +1,5 @@
 # Copyright 2018, Leanplum Inc.
-# Author: Avery Tang (avery.tang@leanplum.com)
+# Author: Avery Tang (avery.tang@leanplum.com) Joe Ross (joseph.ross@leanplum.com)
 # gcloud auth application-default login <-- provides env authentication to connect to bigquery/datastore
 
 import gcloud
@@ -23,8 +23,15 @@ def retrieve_backup_files(service, date, bucket, newConvention):
     :param bucket, google storage bucket name
     :param newConvention: bool, data backup file convention name change
     :return: a list of file names
+
+    Convention updates:
+        After 2018-04-27: Stored in GCS at gs://leanplum_datastore_backups  (this is owned by the leanplum project)
+            Folders are named in the following convention gs://leanplum_datastore_backups/20180427215301
+        Before 2018-04-24: Stored in GCS at gs://leanplum_backups (this is owned by the leanplum2 project)
+            Folders are named in the following convention gs://leanplum_backups/backup_201501062015_01_06_2015-01-06T10:00:03
     """
     search_str = ''
+
     if(newConvention):
         search_str = date
     else:
@@ -46,6 +53,16 @@ def retrieve_backup_files(service, date, bucket, newConvention):
     return filenames
 
 def load_multi_table(service, client, dateStart, dateEnd, bucket, dataset, model):
+    """import BQ table using datastore backups files over time range
+    :param service: object, googleapiclient
+    :param client: object, BigQuery client
+    :param dateStart: str, YYYYMMDD
+    :param dateEnd: str, YYYYMMDD
+    :param bucket: str, google storage bucket name
+    :param dataset: str, name for the data set where the table will be created
+    :param model: str, datastore model
+    :return: None
+    """
     startDate = datetime.datetime.strptime(str(dateStart), '%Y%m%d')
     endDate = datetime.datetime.strptime(str(dateEnd), '%Y%m%d')
     date_generated = [startDate + datetime.timedelta(days=x) for x in range(0, (endDate - startDate + datetime.timedelta(days=1)).days)]
@@ -65,7 +82,6 @@ def load_table(service, client, date, bucket, dataset, model):
     :param client: object, BigQuery client
     :param date: str, YYYYMMDD
     :param bucket: str, google storage bucket name
-    :param project: str, project id
     :param dataset: str, name for the data set where the table will be created
     :param model: str, datastore model
     :return: None
