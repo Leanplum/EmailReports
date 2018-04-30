@@ -72,6 +72,7 @@ def load_table(service, client, date, bucket, dataset, model):
     """
 
     # logger.info("Retrieving backup files for {} on {}...".format(model, date))
+    
     newConvention = False
     if( date > "20180426" ):
         bucket = "leanplum_datastore_backups"
@@ -99,7 +100,6 @@ def load_table(service, client, date, bucket, dataset, model):
         print("Loading Model : " + model + "_backup - " + date, flush=True)
         job = client.wait_for_job(job_id, timeout=600)
         print("Model Loaded : " + model + "_backup - " + date, flush=True)
-
 
 #This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
 # is to ensure that we count unique's per day not per message. This is wrong BUT it is what our analytics shows and we would rather
