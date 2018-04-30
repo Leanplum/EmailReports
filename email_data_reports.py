@@ -2,6 +2,8 @@
 # Author: Avery Tang (avery.tang@leanplum.com)
 # gcloud auth application-default login <-- provides env authentication to connect to bigquery/datastore
 
+import gcloud
+from google.cloud import datastore
 import bigquery
 from oauth2client.client import GoogleCredentials
 import googleapiclient.discovery
@@ -13,19 +15,23 @@ import re
 #List of domains to breakout
 Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\")"
 
-def retrieve_backup_files(service, date, bucket):
+def retrieve_backup_files(service, date, bucket, newConvention):
     """retrieve all datastore backup file names for the date supplied
 
     :param service: object, googleapiclient
     :param date: str, data backup date in %Y%m%d format, e.g 20170425
     :param bucket, google storage bucket name
+    :param newConvention: bool, data backup file convention name change
     :return: a list of file names
     """
-
-    search_str = "backup_" + date  # 20170313
+    search_str = ''
+    if(newConvention):
+        search_str = date
+    else:
+        search_str = "backup_" + date  # 20170313
     fields_to_return = \
         'nextPageToken,items(name,size,contentType,metadata(my-key))'
-    req = service.objects().list(bucket=bucket, fields=fields_to_return, prefix=search_str)
+    req = service.objects().list(bucket=bucket, fields=fields_to_return, prefix=search_str, delimiter='output')
 
     files = []
     # If you have too many items to list in one request, list_next() will
@@ -36,7 +42,7 @@ def retrieve_backup_files(service, date, bucket):
         req = service.objects().list_next(req, resp)
 
     filenames = [x['name'] for x in files]
-
+  
     return filenames
 
 def load_multi_table(service, client, dateStart, dateEnd, bucket, dataset, model):
@@ -66,8 +72,17 @@ def load_table(service, client, date, bucket, dataset, model):
     """
 
     # logger.info("Retrieving backup files for {} on {}...".format(model, date))
-    files = retrieve_backup_files(service, date, bucket)
-    model_search_str = "." + model.lower() + "."
+    newConvention = False
+    if( date > "20180426" ):
+        bucket = "leanplum_datastore_backups"
+        newConvention = True
+
+    files = retrieve_backup_files(service, date, bucket, newConvention)
+    model_search_str = ''
+    if(newConvention):
+        model_search_str = '_' + model.lower() + '.'
+    else:
+        model_search_str = "." + model.lower() + "."
     backup_file = [x for x in files if model_search_str in x.lower()]
 
     if len(backup_file) == 1:
@@ -84,6 +99,7 @@ def load_table(service, client, date, bucket, dataset, model):
         print("Loading Model : " + model + "_backup - " + date, flush=True)
         job = client.wait_for_job(job_id, timeout=600)
         print("Model Loaded : " + model + "_backup - " + date, flush=True)
+
 
 #This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
 # is to ensure that we count unique's per day not per message. This is wrong BUT it is what our analytics shows and we would rather
@@ -586,20 +602,21 @@ if __name__ == "__main__":
     #Domain Report
     elif(args.report == 'd'):
             print('\tCreating report by Domain against : ' + Domains)
-            attrFileName = "AppID_Attr.txt"
+
+            # attrFileName = "AppID_Attr.txt"
 
             #We use an attribute file to lookup email attr location from datastore.
-            try:
-                attrFile = open(attrFileName, 'r+')
-                print('\tAttribute File Found')
-            except:
-                attrFile = open(attrFileName, 'w+')
-            attrLines = attrFile.readlines()
-            attrDict = {}
-            for line in attrLines:
-                appid = re.search("[0-9]*",line).group(0)
-                attrVal = re.search(":[0-9]*",line).group(0)[1:]
-                attrDict[appid] = attrVal
+            # try:
+            #     attrFile = open(attrFileName, 'r+')
+            #     print('\tAttribute File Found')
+            # except:
+            #     attrFile = open(attrFileName, 'w+')
+            # attrLines = attrFile.readlines()
+            # attrDict = {}
+            # for line in attrLines:
+            #     appid = re.search("[0-9]*",line).group(0)
+            #     attrVal = re.search(":[0-9]*",line).group(0)[1:]
+            #     attrDict[appid] = attrVal
 
             #Lookup App Id's for the company
             appidsQuery = create_appids_query(args.company, args.dateE)
@@ -617,14 +634,60 @@ if __name__ == "__main__":
                     file = open(fileName, "w+")
                     file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Type,MessageLink\n")
 
-                    attrLoc = 0
+                    attrLoc = ''
 
                     #Check if our attribute location was previously found - if not request lookup and append to file
-                    if str(app['app_AppID']) in attrDict:
-                        attrLoc = attrDict[str(app['app_AppID'])]
-                    else:
-                        attrLoc = input("Please enter location of email attribute for " + str(app['app_AppName'] + ": " + str(app['app_AppID']) + " :"))
-                        attrFile.write(str(app['app_AppID']) + " :" + str(attrLoc) + "\n")
+                    # if str(app['app_AppID']) in attrDict:
+                    #     attrLoc = attrDict[str(app['app_AppID'])]
+                    # else:
+                    #     attrLoc = input("Please enter location of email attribute for " + str(app['app_AppName'] + ": " + str(app['app_AppID']) + " :"))
+                    #     attrFile.write(str(app['app_AppID']) + " :" + str(attrLoc) + "\n")
+
+                    #Look up email attr in datastore
+                    appId = int(app['app_AppID'])
+                    #Create datastore entity
+                    ds_client = datastore.Client(project='leanplum')
+                    query = ds_client.query(kind='App')
+                    key = ds_client.key('App',appId)
+                    query.key_filter(key,'=')
+
+                    emailName = ''
+                    emailLoc = 0
+
+                    #Do Query on Datastore
+                    print("\t\tTapping Datstore:App", flush=True)
+                    appList = list(query.fetch())
+
+                    try:
+                    #Should only return the AppData for appId specific in key
+                        if(len(appList)!= 1):
+                            print('\t\tBad App Entities returned from AppID for ' + str(app['app_AppName']) + '.Ignore for Unwanted Apps')
+                        else:
+                            emailName = dict(appList[0])['email_user_attribute']
+                            #Run query against app data to find location of email attr
+                            query = ds_client.query(kind='AppData')
+                            key = ds_client.key('AppData',appId)
+                            query.key_filter(key,'=')
+
+                            print("\t\tTapping Datastore:AppData", flush=True)
+                            appDataList = list(query.fetch())
+                            if(len(appDataList) != 1):
+                                print('\t\tBad AppData Entities returned from AppID for ' + str(app['app_AppName']) + '.Ignore for Unwanted Apps')
+                            else:
+                                #Count rows to find email location
+                                attrColumns = dict(appDataList[0])['attribute_columns']
+                                for attr in attrColumns:
+                                    if(attr == emailName):
+                                        break
+                                    else:
+                                        emailLoc = emailLoc + 1
+
+                    except KeyError:
+                        print("\t\tWarning: This App had bad datastore query.")
+                        pass
+                    #Set emailLocation to string - Lazy
+                    attrLoc = str(emailLoc)
+                    print('\t\tEmail Name : ' + emailName + ' : at Location : ' + attrLoc)
 
                     domainQuery = create_domain_line_query(str(app['app_AppID']), args.dateS, args.dateE, attrLoc)
                     domainJob = bq_client.query(domainQuery)
@@ -723,11 +786,8 @@ if __name__ == "__main__":
                     file.close()
                     os.remove(fileName)
                     pass
-            attrFile.close()
+            #attrFile.close()
             print("Finished Running Reports")
 #Catch typo from input
 else:
     print("\tError: Report type unknown. Please use either \'s\' for Subject Report and \'d\' for Domain Report")
-
-
-
