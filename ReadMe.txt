@@ -19,6 +19,8 @@ Start to finish setup to run:
 		rsa==3.4.2
 		six==1.11.0
 		uritemplate==3.0.0
+		google-cloud
+		gcloud
 
 Install from scratch walkthrough. From terminal execute these individually:
 
