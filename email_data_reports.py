@@ -11,6 +11,7 @@ import datetime
 import argparse
 import os
 import re
+import subprocess
 
 #List of domains to breakout
 Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\")"
@@ -479,43 +480,43 @@ def create_appids_query(companyId, endDate):
         WHERE STRING(company.id) = '""" + companyId + "\'"
     return appids
 
-if __name__ == "__main__":
+def runReport(companyId, startDate, endDate, reportType):
 
-    #Parse command line inputs
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--project', '-p', help='project id', default='leanplum-staging')
-    parser.add_argument('--dataset', '-d',  help='dataset that stores the tables', default="email_report_backups")
-    parser.add_argument('--model', '-m', help='datastore model(s) to load', nargs='+', default=['App','Study','Experiment'])
-    #We do not catch bad date format
-    parser.add_argument('--dateS', '-ts', help='start date YYYYMMDD', required=True)
-    parser.add_argument('--dateE', '-te', help='end date YYYYMMDD', required=True)
-    parser.add_argument('--bucket', '-b', help='google storage bucket name', default='leanplum_backups')
-    parser.add_argument('--company', '-c', help='company id', required=True)
-    parser.add_argument('--report', '-r', help='report type (s)ubject/(d)domain', required=True)
-    args = parser.parse_args()
+    # #Parse command line inputs
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--project', '-p', help='project id', default='leanplum-staging')
+    # parser.add_argument('--dataset', '-d',  help='dataset that stores the tables', default="email_report_backups")
+    # parser.add_argument('--model', '-m', help='datastore model(s) to load', nargs='+', default=['App','Study','Experiment'])
+    # #We do not catch bad date format
+    # parser.add_argument('--dateS', '-ts', help='start date YYYYMMDD', required=True)
+    # parser.add_argument('--dateE', '-te', help='end date YYYYMMDD', required=True)
+    # parser.add_argument('--bucket', '-b', help='google storage bucket name', default='leanplum_backups')
+    # parser.add_argument('--company', '-c', help='company id', required=True)
+    # parser.add_argument('--report', '-r', help='report type (s)ubject/(d)domain', required=True)
+    # args = parser.parse_args()
 
     # initialize google and bq clients
     google_credential = GoogleCredentials.get_application_default()
     google_service = googleapiclient.discovery.build('storage', 'v1', credentials=google_credential)
-    bq_client = bigquery.get_client(project_id=args.project, credentials=google_credential)
+    bq_client = bigquery.get_client(project_id='leanplum-staging', credentials=google_credential)
 
     #Load all the backups
-    for model in args.model:
+    for model in ['App','Study','Experiment']:
         print("Loading " + model, flush=True)
         load_multi_table(service=google_service,
                    client=bq_client,
-                   dateStart=args.dateS,
-                   dateEnd=args.dateE,
-                   bucket=args.bucket,
-                   dataset=args.dataset,
+                   dateStart=startDate,
+                   dateEnd=endDate,
+                   bucket='leanplum_backups',
+                   dataset='email_report_backups',
                    model=model)
 
     print("\tBackups Loaded")
 
     #Load Subject Report
-    if(args.report == 's'):
+    if(reportType == 's'):
         print('\tCreating report by Subject Line')
-        appidsQuery = create_appids_query(args.company, args.dateE)
+        appidsQuery = create_appids_query(companyId, endDate)
 
         #Create query for App Id's
         appJob = bq_client.query(appidsQuery)
@@ -528,18 +529,18 @@ if __name__ == "__main__":
 
             #In case the query fails because of missing data or a test app
             try:
-                fileName = "EmailData_" + str(appBundle['app_AppName']) + "_" + str(args.dateS) + "_" + str(args.dateE) + "_subject.csv"
-                file = open(fileName, "w+")
-                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,MessageLink\n")
+                fileName = "EmailData_" + str(appBundle['app_AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                file = open(fileName, "wb")
+                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,MessageLink\n".encode('utf-8'))
 
-                subjectLineQuery = create_subject_line_query(args.company, str(appBundle['app_AppID']), args.dateS, args.dateE)
+                subjectLineQuery = create_subject_line_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
                 subjectLineJob = bq_client.query(subjectLineQuery)
                 print("\t\tRunning Query", flush=True)
                 bq_client.wait_for_job(subjectLineJob[0])
                 print("\t\tQuery Success", flush=True)
                 subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
-                uniqLineQuery = create_subject_line_uniq_query(args.company, str(appBundle['app_AppID']), args.dateS, args.dateE)
+                uniqLineQuery = create_subject_line_uniq_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
                 uniqLineJob = bq_client.query(uniqLineQuery)
                 print("\t\tRunning Query for Uniques", flush=True)
                 bq_client.wait_for_job(uniqLineJob[0])
@@ -576,7 +577,7 @@ if __name__ == "__main__":
                                 uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
                                 uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
 
-                            numString += "\"" + str(item['Subject']) + "\","
+                            numString += "\"" + item['Subject'] + "\","
                             #Removing MessageID as Excel malforms it.
                             #numString += str(item['MessageId']) + ","
                             numString += str(item['Sent']) + ","
@@ -595,13 +596,19 @@ if __name__ == "__main__":
                             numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['app_AppID']) + "#/" + str(appBundle['app_AppID']) + "/messaging/" + str(item['MessageId']) + "\n"
 
 
-                            file.write(numString)
+                            file.write(numString.encode('utf-8'))
                             break
                 file.close() 
 
                 #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
-                file = open(fileName, 'r')
-                lineCount = sum(1 for line in file)
+                lineCount = 0
+                p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                result, err = p.communicate()
+                if p.returncode != 0:
+                    print("\t\tINFO: Error reading end file")
+                else:
+                    lineCount = int(result.strip().split()[0])
+
                 if(lineCount == 1):
                     print("\t\tINFO: Zero Records Returned. Deleting Report.")
                     os.remove(fileName)
@@ -616,7 +623,7 @@ if __name__ == "__main__":
                 pass
         print("Finished Running Reports")
     #Domain Report
-    elif(args.report == 'd'):
+    elif(reportType == 'd'):
             print('\tCreating report by Domain against : ' + Domains)
 
             # attrFileName = "AppID_Attr.txt"
@@ -635,7 +642,7 @@ if __name__ == "__main__":
             #     attrDict[appid] = attrVal
 
             #Lookup App Id's for the company
-            appidsQuery = create_appids_query(args.company, args.dateE)
+            appidsQuery = create_appids_query(companyId, endDate)
             appJob = bq_client.query(appidsQuery)
             bq_client.wait_for_job(appJob[0])
             appResults = bq_client.get_query_rows(appJob[0])
@@ -646,9 +653,9 @@ if __name__ == "__main__":
                 #In case the query fails because of missing data or a test app
                 try:
                     print("\n\tQuerying Data for " + app['app_AppName'] + ":" + str(app['app_AppID']))
-                    fileName = "EmailData_" + str(app['app_AppName']) + "_" + str(args.dateS) + "_" + str(args.dateE) + "_domain.csv"
-                    file = open(fileName, "w+")
-                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Type,MessageLink\n")
+                    fileName = "EmailData_" + str(app['app_AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    file = open(fileName, "wb")
+                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Type,MessageLink\n".encode('utf-8'))
 
                     attrLoc = ''
 
@@ -705,28 +712,28 @@ if __name__ == "__main__":
                     attrLoc = str(emailLoc)
                     print('\t\tEmail Name : ' + emailName + ' : at Location : ' + attrLoc)
 
-                    domainQuery = create_domain_line_query(str(app['app_AppID']), args.dateS, args.dateE, attrLoc)
+                    domainQuery = create_domain_line_query(str(app['app_AppID']), startDate, endDate, attrLoc)
                     domainJob = bq_client.query(domainQuery)
                     print("\t\tRunning Query for Domain", flush=True)
                     bq_client.wait_for_job(domainJob[0])
                     print("\t\tQuery Success", flush=True)
                     domainResults = bq_client.get_query_rows(domainJob[0])
 
-                    domainUniqueQuery = create_domain_unique_query(str(app['app_AppID']), args.dateS, args.dateE, attrLoc)
+                    domainUniqueQuery = create_domain_unique_query(str(app['app_AppID']), startDate, endDate, attrLoc)
                     domainUniJob = bq_client.query(domainUniqueQuery)
                     print("\t\tRunning Query for Uniques", flush=True)
                     bq_client.wait_for_job(domainUniJob[0])
                     print("\t\tQuery Success", flush=True)
                     domainUniResults = bq_client.get_query_rows(domainUniJob[0])
 
-                    senderEmailQuery = create_sender_email_query(args.dateS, args.dateE)
+                    senderEmailQuery = create_sender_email_query(startDate, endDate)
                     senderJob = bq_client.query(senderEmailQuery)
                     print("\t\tRunning Query for Sender Emails", flush=True)
                     bq_client.wait_for_job(senderJob[0])
                     print("\t\tQuery Success", flush=True)
                     senderEmailResults = bq_client.get_query_rows(senderJob[0])
 
-                    defaultEmailSenderQuery = create_default_sender_email_query(str(app['app_AppID']), str(args.dateE))
+                    defaultEmailSenderQuery = create_default_sender_email_query(str(app['app_AppID']), str(endDate))
                     defaultEmailJob = bq_client.query(defaultEmailSenderQuery)
                     print("\t\tRunning Query for Default Sender Email", flush=True)
                     bq_client.wait_for_job(defaultEmailJob[0])
@@ -771,7 +778,7 @@ if __name__ == "__main__":
                                     #Aggregate
                                     try:
                                         allStr = ''
-                                        allStr += str(allCategoryDict['MessageName']) + ','
+                                        allStr += allCategoryDict['MessageName'] + ','
                                         allStr += str(allCategoryDict['SenderDomain']) + ','
                                         allStr += str(allCategoryDict['Domain']) + ','
                                         allStr += str(allCategoryDict['Sent']) + ','
@@ -792,15 +799,15 @@ if __name__ == "__main__":
 
                                         #Don't Write If Nothing There
                                         if(allCategoryDict['Sent'] != 0):
-                                            file.write(allStr)
+                                            file.write(allStr.encode('utf-8'))
                                     except ZeroDivisionError:
                                         pass
                                     #Zero out and Update
                                     allCategoryDict = {'MessageName':'','MessageID':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
                                     allCategoryDict['MessageID'] = domainNum['MessageID']
 
-                                numString += "\"" + str(domainNum['MessageName']) + " (" + senderEmail +  ")\","
-                                allCategoryDict['MessageName'] = "\"" + str(domainNum['MessageName']) + " (" + senderEmail +  ")\""
+                                numString += "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\","
+                                allCategoryDict['MessageName'] = "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\""
 
                                 prefix = re.search(".*@",senderEmail).group(0)
                                 domain = senderEmail[len(prefix):]
@@ -850,13 +857,19 @@ if __name__ == "__main__":
 
                                 numString += "https://www.leanplum.com/dashboard?appId=" +  str(app['app_AppID']) + "#/" + str(app['app_AppID']) + "/messaging/" + str(domainNum['MessageID']) + "\n"
 
-                                file.write(numString)
+                                file.write(numString.encode('utf-8'))
                                 break
 
                     file.close()
                     #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
-                    file = open(fileName, 'r')
-                    lineCount = sum(1 for line in file)
+                    lineCount = 0
+                    p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    result, err = p.communicate()
+                    if p.returncode != 0:
+                        print("\t\tINFO: Error reading end file")
+                    else:
+                        lineCount = int(result.strip().split()[0])
+
                     if(lineCount == 1):
                         print("\t\tINFO: Zero Records Returned. Deleting Report")
                         os.remove(fileName)
@@ -870,6 +883,3 @@ if __name__ == "__main__":
                     pass
             #attrFile.close()
             print("Finished Running Reports")
-#Catch typo from input
-else:
-    print("\tError: Report type unknown. Please use either \'s\' for Subject Report and \'d\' for Domain Report")
