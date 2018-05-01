@@ -564,7 +564,7 @@ if __name__ == "__main__":
 
                             delivPct = 0.0
                             bouncePct = 0.0
-                            openPCt = 0.0
+                            openPct = 0.0
                             uniqueOpenPct = 0.0
                             uniqueClickPct = 0.0
 
@@ -572,7 +572,7 @@ if __name__ == "__main__":
                                 delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
                                 bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
                             if(float(item['Delivered']) > 0.0):
-                                openPCt = float(item['Open'])/float(item['Delivered']) * 100.0
+                                openPct = float(item['Open'])/float(item['Delivered']) * 100.0
                                 uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
                                 uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
 
@@ -583,7 +583,7 @@ if __name__ == "__main__":
                             numString += str(item['Delivered']) + ","
                             numString += str(delivPct)[:4] + "%,"
                             numString += str(item['Open']) + ","
-                            numString += str(openPCt)[:4] + "%,"
+                            numString += str(openPct)[:4] + "%,"
                             numString += str(uni['Unique_Open']) + ","
                             numString += str(uniqueOpenPct)[:4] + "%,"
                             numString += str(uni['Unique_Click']) + ","
@@ -733,6 +733,9 @@ if __name__ == "__main__":
                     print("\t\tQuery Success", flush=True)
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
+                    #Used for All Category
+                    allCategoryDict = {'MessageName':'','MessageID':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
+
                     #Loop through all results and build report
                     for domainNum in domainResults:
                         for domainUni in domainUniResults:
@@ -750,7 +753,7 @@ if __name__ == "__main__":
                                     senderEmail = defaultEmail
                                 delivPct = 0.0
                                 bouncePct = 0.0
-                                openPCt = 0.0
+                                openPct = 0.0
                                 uniqueOpenPct = 0.0
                                 uniqueClickPct = 0.0
 
@@ -758,35 +761,98 @@ if __name__ == "__main__":
                                     delivPct = float(domainNum['Delivered'])/float(domainNum['Sent']) * 100.0
                                     bouncePct = float(domainNum['Bounce'])/float(domainNum['Sent']) * 100.0
                                 if(float(domainNum['Delivered']) > 0.0):
-                                    openPCt = float(domainNum['Open'])/float(domainNum['Delivered']) * 100.0
+                                    openPct = float(domainNum['Open'])/float(domainNum['Delivered']) * 100.0
                                     uniqueOpenPct = float(domainUni['Unique_Open'])/float(domainNum['Delivered']) * 100.0
                                     uniqueClickPct = float(domainUni['Unique_Click'])/float(domainNum['Delivered']) * 100.0
 
+                                if(allCategoryDict['MessageID'] == 0):
+                                    allCategoryDict['MessageID'] = domainNum['MessageID']
+                                elif(allCategoryDict['MessageID'] != domainNum['MessageID']):
+                                    #Aggregate
+                                    try:
+                                        allStr = ''
+                                        allStr += str(allCategoryDict['MessageName']) + ','
+                                        allStr += str(allCategoryDict['SenderDomain']) + ','
+                                        allStr += str(allCategoryDict['Domain']) + ','
+                                        allStr += str(allCategoryDict['Sent']) + ','
+                                        allStr += str(allCategoryDict['Delivered']) + ','
+                                        allStr += str(float(allCategoryDict['Delivered'])/float(allCategoryDict['Sent'])*100.0)[:4] + '%,'
+                                        allStr += str(allCategoryDict['Open']) + ','
+                                        allStr += str(float(allCategoryDict['Open'])/float(allCategoryDict['Delivered']) * 100.0)[:4] + '%,'
+                                        allStr += str(allCategoryDict['Unique_Open']) + ','
+                                        allStr += str(float(allCategoryDict['Unique_Open'])/float(allCategoryDict['Delivered']) * 100.0)[:4] + '%,'
+                                        allStr += str(allCategoryDict['Unique_Click']) + ','
+                                        allStr += str(float(allCategoryDict['Unique_Click'])/float(allCategoryDict['Delivered']) * 100.0)[:4] + '%,'
+                                        allStr += str(allCategoryDict['Bounce']) + ','
+                                        allStr += str(float(allCategoryDict['Bounce'])/float(allCategoryDict['Sent']) * 100.0)[:4] + '%,'
+                                        allStr += str(allCategoryDict['Dropped']) + ','
+                                        allStr += str(allCategoryDict['Unsubscribe']) + ','
+                                        allStr += str(allCategoryDict['Type']) + ','
+                                        allStr += ' \n'
+
+                                        #Don't Write If Nothing There
+                                        if(allCategoryDict['Sent'] != 0):
+                                            file.write(allStr)
+                                    except ZeroDivisionError:
+                                        pass
+                                    #Zero out and Update
+                                    allCategoryDict = {'MessageName':'','MessageID':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
+                                    allCategoryDict['MessageID'] = domainNum['MessageID']
+
                                 numString += "\"" + str(domainNum['MessageName']) + " (" + senderEmail +  ")\","
+                                allCategoryDict['MessageName'] = "\"" + str(domainNum['MessageName']) + " (" + senderEmail +  ")\""
+
                                 prefix = re.search(".*@",senderEmail).group(0)
                                 domain = senderEmail[len(prefix):]
                                 numString += str(domain) + ","
+                                allCategoryDict['SenderDomain'] = str(domain)
+
                                 #Removing Message ID as Excel Malforms
                                 #numString += str(domainNum['MessageID']) + ","
                                 numString += str(domainNum['Domain']) + ","
+
                                 numString += str(domainNum['Sent']) + ","
+                                allCategoryDict['Sent'] += domainNum['Sent']
+
                                 numString += str(domainNum['Delivered']) + ","
+                                allCategoryDict['Delivered'] += domainNum['Delivered']
+
                                 numString += str(delivPct)[:4] + "%,"
+
                                 numString += str(domainNum['Open']) + ","
-                                numString += str(openPCt)[:4] + "%,"
+                                allCategoryDict['Open'] += domainNum['Open']
+
+                                numString += str(openPct)[:4] + "%,"
+
                                 numString += str(domainUni['Unique_Open']) + ","
+                                allCategoryDict['Unique_Open'] += domainUni['Unique_Open']
+
                                 numString += str(uniqueOpenPct)[:4] + "%,"
+
                                 numString += str(domainUni['Unique_Click']) + ","
+                                allCategoryDict['Unique_Click'] += domainUni['Unique_Click']
+
                                 numString += str(uniqueClickPct)[:4] + "%,"
+
                                 numString += str(domainNum['Bounce']) + ","
-                                numString += str(bouncePct)[:4] + "%,"
+                                allCategoryDict['Bounce'] += domainNum['Bounce']
+
+                                numString += str(bouncePct)[:4] + "%," 
+
                                 numString += str(domainNum['Dropped']) + ","
+                                allCategoryDict['Dropped'] += domainNum['Dropped']
+
                                 numString += str(domainNum['Unsubscribe']) + ","
+                                allCategoryDict['Unsubscribe'] += domainNum['Unsubscribe']
+
                                 numString += str(domainNum['Type']) + ","
+                                allCategoryDict['Type'] = str(domainNum['Type'])
+
                                 numString += "https://www.leanplum.com/dashboard?appId=" +  str(app['app_AppID']) + "#/" + str(app['app_AppID']) + "/messaging/" + str(domainNum['MessageID']) + "\n"
 
                                 file.write(numString)
                                 break
+
                     file.close()
                     #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
                     file = open(fileName, 'r')
