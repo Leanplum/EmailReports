@@ -118,7 +118,7 @@ def load_table(service, client, date, bucket, dataset, model):
             job = client.wait_for_job(job_id, timeout=120)
             print("Model Loaded : " + model + "_backup - " + date, flush=True)
         else:
-            print("Model : " + model + "_backup - " + date + " Exists", flush=True)
+            #print("Model : " + model + "_backup - " + date + " Exists", flush=True)
 
 #This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
 # is to ensure that we count unique's per day not per message. This is wrong BUT it is what our analytics shows and we would rather
