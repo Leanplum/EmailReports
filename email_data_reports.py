@@ -619,7 +619,7 @@ def runReport(companyId, startDate, endDate, reportType):
                 file.close()
             
             except googleapiclient.errors.HttpError as inst:
-                print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst))
+                print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
                 file.close()
                 os.remove(fileName)
                 pass
@@ -879,7 +879,7 @@ def runReport(companyId, startDate, endDate, reportType):
                         print("\t\tSuccess")
                     file.close()
                 except googleapiclient.errors.HttpError as inst:
-                    print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst))
+                    print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
                     file.close()
                     os.remove(fileName)
                     pass
