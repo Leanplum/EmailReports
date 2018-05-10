@@ -117,7 +117,7 @@ def load_table(service, client, date, bucket, dataset, model):
             print("Loading Model : " + model + "_backup - " + date, flush=True)
             job = client.wait_for_job(job_id, timeout=120)
             print("Model Loaded : " + model + "_backup - " + date, flush=True)
-        else:
+        #else:
             #print("Model : " + model + "_backup - " + date + " Exists", flush=True)
 
 #This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
