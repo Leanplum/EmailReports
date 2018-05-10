@@ -106,17 +106,19 @@ def load_table(service, client, date, bucket, dataset, model):
     if len(backup_file) == 1:
         source_uri = 'gs://' + bucket + "/" + backup_file[0]
         table_name = model.title() + "_" + date
-        existing_tables = [x for x in client.get_all_tables(dataset) if model.title() + "_" in x]
 
-        loading = client.import_data_from_uris(source_uris=source_uri,
-                                               dataset=dataset,
-                                               table=table_name,
-                                               source_format='DATASTORE_BACKUP')
+        if( not client.check_table(dataset=dataset, table=table_name) ):
+            loading = client.import_data_from_uris(source_uris=source_uri,
+                                                   dataset=dataset,
+                                                   table=table_name,
+                                                   source_format='DATASTORE_BACKUP')
 
-        job_id = loading['jobReference']['jobId']
-        print("Loading Model : " + model + "_backup - " + date, flush=True)
-        job = client.wait_for_job(job_id, timeout=600)
-        print("Model Loaded : " + model + "_backup - " + date, flush=True)
+            job_id = loading['jobReference']['jobId']
+            print("Loading Model : " + model + "_backup - " + date, flush=True)
+            job = client.wait_for_job(job_id, timeout=120)
+            print("Model Loaded : " + model + "_backup - " + date, flush=True)
+        #else:
+            #print("Model : " + model + "_backup - " + date + " Exists", flush=True)
 
 #This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
 # is to ensure that we count unique's per day not per message. This is wrong BUT it is what our analytics shows and we would rather
@@ -520,7 +522,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
         #Create query for App Id's
         appJob = bq_client.query(appidsQuery)
-        bq_client.wait_for_job(appJob[0])
+        bq_client.wait_for_job(appJob[0],timeout=120)
         appResults = bq_client.get_query_rows(appJob[0])
 
         #Loop through all App Id's
@@ -536,14 +538,14 @@ def runReport(companyId, startDate, endDate, reportType):
                 subjectLineQuery = create_subject_line_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
                 subjectLineJob = bq_client.query(subjectLineQuery)
                 print("\t\tRunning Query", flush=True)
-                bq_client.wait_for_job(subjectLineJob[0])
+                bq_client.wait_for_job(subjectLineJob[0],timeout=120)
                 print("\t\tQuery Success", flush=True)
                 subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
                 uniqLineQuery = create_subject_line_uniq_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
                 uniqLineJob = bq_client.query(uniqLineQuery)
                 print("\t\tRunning Query for Uniques", flush=True)
-                bq_client.wait_for_job(uniqLineJob[0])
+                bq_client.wait_for_job(uniqLineJob[0],timeout=120)
                 print("\t\tQuery Success", flush=True)
                 uniqResults = bq_client.get_query_rows(uniqLineJob[0])
 
@@ -616,8 +618,8 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\t\tSuccess")
                 file.close()
             
-            except googleapiclient.errors.HttpError:
-                print("\t\tWarning: This App had bad query. Deleting Report.")
+            except googleapiclient.errors.HttpError as inst:
+                print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
                 file.close()
                 os.remove(fileName)
                 pass
@@ -644,7 +646,7 @@ def runReport(companyId, startDate, endDate, reportType):
             #Lookup App Id's for the company
             appidsQuery = create_appids_query(companyId, endDate)
             appJob = bq_client.query(appidsQuery)
-            bq_client.wait_for_job(appJob[0])
+            bq_client.wait_for_job(appJob[0],timeout=120)
             appResults = bq_client.get_query_rows(appJob[0])
 
             #Loop through all App's gathered
@@ -715,28 +717,28 @@ def runReport(companyId, startDate, endDate, reportType):
                     domainQuery = create_domain_line_query(str(app['app_AppID']), startDate, endDate, attrLoc)
                     domainJob = bq_client.query(domainQuery)
                     print("\t\tRunning Query for Domain", flush=True)
-                    bq_client.wait_for_job(domainJob[0])
+                    bq_client.wait_for_job(domainJob[0],timeout=120)
                     print("\t\tQuery Success", flush=True)
                     domainResults = bq_client.get_query_rows(domainJob[0])
 
                     domainUniqueQuery = create_domain_unique_query(str(app['app_AppID']), startDate, endDate, attrLoc)
                     domainUniJob = bq_client.query(domainUniqueQuery)
                     print("\t\tRunning Query for Uniques", flush=True)
-                    bq_client.wait_for_job(domainUniJob[0])
+                    bq_client.wait_for_job(domainUniJob[0],timeout=120)
                     print("\t\tQuery Success", flush=True)
                     domainUniResults = bq_client.get_query_rows(domainUniJob[0])
 
                     senderEmailQuery = create_sender_email_query(startDate, endDate)
                     senderJob = bq_client.query(senderEmailQuery)
                     print("\t\tRunning Query for Sender Emails", flush=True)
-                    bq_client.wait_for_job(senderJob[0])
+                    bq_client.wait_for_job(senderJob[0],timeout=120)
                     print("\t\tQuery Success", flush=True)
                     senderEmailResults = bq_client.get_query_rows(senderJob[0])
 
                     defaultEmailSenderQuery = create_default_sender_email_query(str(app['app_AppID']), str(endDate))
                     defaultEmailJob = bq_client.query(defaultEmailSenderQuery)
                     print("\t\tRunning Query for Default Sender Email", flush=True)
-                    bq_client.wait_for_job(defaultEmailJob[0])
+                    bq_client.wait_for_job(defaultEmailJob[0],timeout=120)
                     print("\t\tQuery Success", flush=True)
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
@@ -876,8 +878,8 @@ def runReport(companyId, startDate, endDate, reportType):
                     else:
                         print("\t\tSuccess")
                     file.close()
-                except googleapiclient.errors.HttpError:
-                    print("\t\tWarning: This App had bad query. Deleting Report.")
+                except googleapiclient.errors.HttpError as inst:
+                    print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
                     file.close()
                     os.remove(fileName)
                     pass
