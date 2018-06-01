@@ -195,112 +195,131 @@ def runReport(companyId, startDate, endDate, reportType):
 
     #Load Subject Report
     if(reportType == 's'):
-        # print('\tCreating report by Subject Line')
-        # appidsQuery = create_appids_query(companyId, endDate)
+        print('\tCreating report by Subject Line')
+        appidsQuery = create_appids_query(companyId, endDate)
 
-        # #Create query for App Id's
-        # appJob = bq_client.query(appidsQuery)
-        # bq_client.wait_for_job(appJob[0],timeout=120)
-        # appResults = bq_client.get_query_rows(appJob[0])
+        #Create query for App Id's
+        appJob = bq_client.query(appidsQuery)
+        bq_client.wait_for_job(appJob[0],timeout=120)
+        appResults = bq_client.get_query_rows(appJob[0])
 
-        # #Loop through all App Id's
-        # for appBundle in appResults:
-        #     print("\n\tQuerying Data for " + appBundle['app_AppName'] + ":" + str(appBundle['app_AppID']))
+        #Loop through all App Id's
+        for appBundle in appResults:
+            print("\n\tQuerying Data for " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
 
-        #     #In case the query fails because of missing data or a test app
-        #     try:
-        #         fileName = "EmailData_" + str(appBundle['app_AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
-        #         file = open(fileName, "wb")
-        #         file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,MessageLink\n".encode('utf-8'))
+            #In case the query fails because of missing data or a test app
+            try:
+                fileName = "EmailData_" + str(appBundle['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                file = open(fileName, "wb")
+                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
-        #         subjectLineQuery = create_subject_line_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
-        #         subjectLineJob = bq_client.query(subjectLineQuery)
-        #         print("\t\tRunning Query", flush=True)
-        #         bq_client.wait_for_job(subjectLineJob[0],timeout=120)
-        #         print("\t\tQuery Success", flush=True)
-        #         subjectResults = bq_client.get_query_rows(subjectLineJob[0])
+                subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
+                subjectLineJob = bq_client.query(subjectLineQuery)
+                print("\t\tRunning Query", flush=True)
+                bq_client.wait_for_job(subjectLineJob[0],timeout=120)
+                print("\t\tQuery Success", flush=True)
+                subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
-        #         uniqLineQuery = create_subject_line_uniq_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
-        #         uniqLineJob = bq_client.query(uniqLineQuery)
-        #         print("\t\tRunning Query for Uniques", flush=True)
-        #         bq_client.wait_for_job(uniqLineJob[0],timeout=120)
-        #         print("\t\tQuery Success", flush=True)
-        #         uniqResults = bq_client.get_query_rows(uniqLineJob[0])
+                uniqLineQuery = SubjectGenerator.create_unique_line_query(startDate, endDate, str(appBundle['AppId']))
+                uniqLineJob = bq_client.query(uniqLineQuery)
+                print("\t\tRunning Query for Uniques", flush=True)
+                bq_client.wait_for_job(uniqLineJob[0],timeout=120)
+                print("\t\tQuery Success", flush=True)
+                uniqResults = bq_client.get_query_rows(uniqLineJob[0])
 
-        #         #There is a difference between a bad table and a zero table. We catch that here.
-        #         if(not subjectResults):
-        #             print("\t\tINFO: Zero Records Returned")
-        #             file.close()
-        #             os.remove(fileName)
-        #             continue
+                #There is a difference between a bad table and a zero table. We catch that here.
+                if(not subjectResults):
+                    print("\t\tINFO: Zero Records Returned")
+                    file.close()
+                    os.remove(fileName)
+                    continue
 
-        #         #Loop through all the MessageId's that we gathered from the AppId
-        #         for item in subjectResults:
-        #             for uni in uniqResults:
-        #                 if(uni['MessageId'] == item['MessageId']):
-        #                     if(int(item['Sent'] == 0)):
-        #                         break
+                abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
+                abJob = bq_client.query(abQuery)
+                print("\t\tRunning AB Query", flush=True)
+                bq_client.wait_for_job(abJob[0],timeout=180)
+                print("\t\tQuery Success", flush=True)
+                abResults = bq_client.get_query_rows(abJob[0])
 
-        #                     numString = ""
-
-        #                     delivPct = 0.0
-        #                     bouncePct = 0.0
-        #                     openPct = 0.0
-        #                     uniqueOpenPct = 0.0
-        #                     uniqueClickPct = 0.0
-
-        #                     if(float(item['Sent']) > 0.0):
-        #                         delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
-        #                         bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
-        #                     if(float(item['Delivered']) > 0.0):
-        #                         openPct = float(item['Open'])/float(item['Delivered']) * 100.0
-        #                         uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
-        #                         uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
-
-        #                     numString += "\"" + item['Subject'] + "\","
-        #                     #Removing MessageID as Excel malforms it.
-        #                     #numString += str(item['MessageId']) + ","
-        #                     numString += str(item['Sent']) + ","
-        #                     numString += str(item['Delivered']) + ","
-        #                     numString += str(delivPct)[:4] + "%,"
-        #                     numString += str(item['Open']) + ","
-        #                     numString += str(openPct)[:4] + "%,"
-        #                     numString += str(uni['Unique_Open']) + ","
-        #                     numString += str(uniqueOpenPct)[:4] + "%,"
-        #                     numString += str(uni['Unique_Click']) + ","
-        #                     numString += str(uniqueClickPct)[:4] + "%,"
-        #                     numString += str(item['Bounce']) + ","
-        #                     numString += str(bouncePct)[:4] + "%,"
-        #                     numString += str(item['Dropped']) + ","
-        #                     numString += str(item['Unsubscribe']) + ","
-        #                     numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['app_AppID']) + "#/" + str(appBundle['app_AppID']) + "/messaging/" + str(item['MessageId']) + "\n"
+                abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
+                abUniqueJob = bq_client.query(abUniqueQuery)
+                print("\t\tRunning AB Unique Query", flush=True)
+                bq_client.wait_for_job(abJob[0],timeout=180)
+                print("\t\tQuery Success", flush=True)
+                abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
 
 
-        #                     file.write(numString.encode('utf-8'))
-        #                     break
-        #         file.close() 
+                #Loop through all the MessageId's that we gathered from the AppId
+                for item in subjectResults:
+                    for uni in uniqResults:
+                        if(uni['MessageId'] == item['MessageId']):
+                            if(int(item['Sent'] == 0)):
+                                break
+                            if(string(item['MessageId']) in abResults):
+                            else:
+                                numString = ""
 
-        #         #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
-        #         lineCount = 0
-        #         p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        #         result, err = p.communicate()
-        #         if p.returncode != 0:
-        #             print("\t\tINFO: Error reading end file")
-        #         else:
-        #             lineCount = int(result.strip().split()[0])
+                                delivPct = 0.0
+                                bouncePct = 0.0
+                                openPct = 0.0
+                                uniqueOpenPct = 0.0
+                                uniqueClickPct = 0.0
+                                spamPct = 0.0
 
-        #         if(lineCount == 1):
-        #             print("\t\tINFO: Zero Records Returned. Deleting Report.")
-        #             os.remove(fileName)
-        #         else:
-        #             print("\t\tSuccess")
-        #         file.close()
+                                if(float(item['Sent']) > 0.0):
+                                    delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
+                                    bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
+                                if(float(item['Delivered']) > 0.0):
+                                    openPct = float(item['Open'])/float(item['Delivered']) * 100.0
+                                    spamPct = float(item['Spam'])/float(item['Delivered']) * 100.0
+                                    uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
+                                    uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
+                                numString += "\"" + item['Subject'] + "\","
+                                #Removing MessageID as Excel malforms it.
+                                #numString += str(item['MessageId']) + ","
+                                numString += str(item['Sent']) + ","
+                                numString += str(item['Delivered']) + ","
+                                numString += str(delivPct)[:4] + "%,"
+                                numString += str(item['Open']) + ","
+                                numString += str(openPct)[:4] + "%,"
+                                numString += str(uni['Unique_Open']) + ","
+                                numString += str(uniqueOpenPct)[:4] + "%,"
+                                numString += str(uni['Unique_Click']) + ","
+                                numString += str(uniqueClickPct)[:4] + "%,"
+                                numString += str(item['Bounce']) + ","
+                                numString += str(bouncePct)[:4] + "%,"
+                                numString += str(item['Dropped']) + ","
+                                numString += str(item['Unsubscribe']) + ","
+                                numString += str(item['Spam']) + ","
+                                numString += str(spamPct)[:4] + ","
+                                numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['AppId']) + "#/" + str(appBundle['AppId']) + "/messaging/" + str(item['MessageId']) + "\n"
+
+
+                                file.write(numString.encode('utf-8'))
+                                break
+                file.close() 
+
+                #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
+                lineCount = 0
+                p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                result, err = p.communicate()
+                if p.returncode != 0:
+                    print("\t\tINFO: Error reading end file")
+                else:
+                    lineCount = int(result.strip().split()[0])
+
+                if(lineCount == 1):
+                    print("\t\tINFO: Zero Records Returned. Deleting Report.")
+                    os.remove(fileName)
+                else:
+                    print("\t\tSuccess")
+                file.close()
             
-        #     except googleapiclient.errors.HttpError as inst:
-        #         print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
-        #         file.close()
-        #         os.remove(fileName)
-        #         pass
+            except googleapiclient.errors.HttpError as inst:
+                print("\t\tWarning: This App had bad query. Deleting Report. " + str(type(inst)))
+                file.close()
+                os.remove(fileName)
+                pass
         print("Finished Running Reports")
     #Domain Report
     elif(reportType == 'd'):
@@ -335,7 +354,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\n\tQuerying Data for " + app['AppName'] + ":" + str(app['AppId']))
                     fileName = "EmailData_" + str(app['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
                     file = open(fileName, "wb")
-                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Type,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
                     attrLoc = ''
 
@@ -415,7 +434,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
                     #Used for All Category
-                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
+                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
 
                     #Loop through all results and build report
                     for domainNum in domainResults:
@@ -437,12 +456,14 @@ def runReport(companyId, startDate, endDate, reportType):
                                 openPct = 0.0
                                 uniqueOpenPct = 0.0
                                 uniqueClickPct = 0.0
+                                spamPct = 0.0
 
                                 if(float(domainNum['Sent']) > 0.0):
                                     delivPct = float(domainNum['Delivered'])/float(domainNum['Sent']) * 100.0
                                     bouncePct = float(domainNum['Bounce'])/float(domainNum['Sent']) * 100.0
                                 if(float(domainNum['Delivered']) > 0.0):
                                     openPct = float(domainNum['Open'])/float(domainNum['Delivered']) * 100.0
+                                    spamPct = float(domainNum['Spam'])/float(domainNum['Delivered']) * 100.0
                                     uniqueOpenPct = float(domainUni['Unique_Open'])/float(domainNum['Delivered']) * 100.0
                                     uniqueClickPct = float(domainUni['Unique_Click'])/float(domainNum['Delivered']) * 100.0
 
@@ -468,6 +489,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                         allStr += str(float(allCategoryDict['Bounce'])/float(allCategoryDict['Sent']) * 100.0)[:4] + '%,'
                                         allStr += str(allCategoryDict['Dropped']) + ','
                                         allStr += str(allCategoryDict['Unsubscribe']) + ','
+                                        allStr += str(allCategoryDict['Spam']) + ','
+                                        allStr += str(float(allCategoryDict['Spam'])/float(allCategoryDict['Delivered']) * 100.0)[:4] + '%,'
                                         allStr += str(allCategoryDict['Type']) + ','
                                         allStr += ' \n'
 
@@ -477,7 +500,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                     except ZeroDivisionError:
                                         pass
                                     #Zero out and Update
-                                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
+                                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
                                     allCategoryDict['MessageId'] = domainNum['MessageId']
 
                                 numString += "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\","
@@ -525,6 +548,11 @@ def runReport(companyId, startDate, endDate, reportType):
 
                                 numString += str(domainNum['Unsubscribe']) + ","
                                 allCategoryDict['Unsubscribe'] += domainNum['Unsubscribe']
+
+                                numString += str(domainNum['Spam']) + ","
+                                allCategoryDict['Spam'] += domainNum['Spam']
+
+                                numString += str(spamPct)[:4] + "%,"
 
                                 numString += str(domainNum['Type']) + ","
                                 allCategoryDict['Type'] = str(domainNum['Type'])

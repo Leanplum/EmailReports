@@ -30,6 +30,7 @@ SELECT
 	MessageInfo.Dropped as Dropped,
 	MessageInfo.Block as Block,
 	MessageInfo.Unsubscribe as Unsubscribe,
+	MessageInfo.Spam as Spam
 	ROW_NUMBER() OVER(PARTITION BY MessageInfo.MessageId, MessageInfo.Domain ORDER BY Study.time DESC) AS ID,
 	Study.Type as Type
 FROM
@@ -37,7 +38,7 @@ FROM
 JOIN
 	(""" + textwrap.indent(create_delivery_type_query(startDate, endDate, appId, attrLoc, level + 1),'\t' * level) + """) Study
 ON Study.MessageId = MessageInfo.MessageId
-GROUP BY MessageName, MessageInfo.MessageId, MessageId, MessageInfo.Domain, Domain, Sent, Delivered, Open, Click, Bounce, Dropped, Block, Unsubscribe, Study.time, Type
+GROUP BY MessageName, MessageInfo.MessageId, MessageId, MessageInfo.Domain, Domain, Sent, Delivered, Open, Click, Bounce, Dropped, Block, Unsubscribe, Spam, Study.time, Type
 ORDER BY MessageId, Domain"""
 	return query
 
@@ -145,7 +146,8 @@ SELECT
   	SUM(IF(MessageInfo.Event = "Bounce", MessageInfo.Occurrence,0)) AS Bounce,
   	SUM(IF(MessageInfo.Event = "Dropped", MessageInfo.Occurrence,0)) AS Dropped,
   	SUM(IF(MessageInfo.Event = "Block", MessageInfo.Occurrence,0)) AS Block,
-  	SUM(IF(MessageInfo.Event = "Unsubscribe", MessageInfo.Occurrence,0)) AS Unsubscribe
+  	SUM(IF(MessageInfo.Event = "Unsubscribe", MessageInfo.Occurrence,0)) AS Unsubscribe,
+  	SUM(IF(MessageInfo.Event = "Marked as spam", MessageInfo.Occurrence,0)) AS Spam
 FROM
 	(""" + textwrap.indent(sum_related_domains_query(startDate, endDate, appId, attrLoc, level + 1), '\t' * level) + """) MessageInfo
 GROUP BY MessageId, Domain
