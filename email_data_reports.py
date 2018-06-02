@@ -221,6 +221,7 @@ def runReport(companyId, startDate, endDate, reportType):
                 subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
                 uniqLineQuery = SubjectGenerator.create_unique_line_query(startDate, endDate, str(appBundle['AppId']))
+                #print(uniqLineQuery,flush=True)
                 uniqLineJob = bq_client.query(uniqLineQuery)
                 print("\t\tRunning Query for Uniques", flush=True)
                 bq_client.wait_for_job(uniqLineJob[0],timeout=120)
@@ -255,10 +256,77 @@ def runReport(companyId, startDate, endDate, reportType):
                         if(uni['MessageId'] == item['MessageId']):
                             if(int(item['Sent'] == 0)):
                                 break
-                            if(string(item['MessageId']) in abResults):
-                            else:
-                                numString = ""
+                            
+                            #print(abResults,flush=True)
+                            #print(abUniqueResults,flush=True)
+                            #Check if this messageId is apart of an AB Test
+                            inExperiment = False
+                            abDataRows = []
+                            for abData in abResults:
+                                if item['MessageId'] == abData['MessageId']:
+                                    abDataRows += abData
+                                    inExperiment = True
 
+                            numString = ""
+
+                            if(inExperiment):
+
+                                abUniqueDataRows = []
+
+                                #Grab Unique Rows now that we know we have AB data
+                                for abUniqueData in abUniqueResults:
+                                    if item['MessageId'] == abUniqueData['MessageId']:
+                                        abUniqueDataRows += abUniqueData
+
+                                #Loop through variants
+                                for abData in abDataRows:
+                                    delivPct = 0.0
+                                    bouncePct = 0.0
+                                    openPct = 0.0
+                                    uniqueOpenPct = 0.0
+                                    uniqueClickPct = 0.0
+                                    spamPct = 0.0
+
+                                    uniAb = []
+                                    for abUniqueData in abUniqueDataRows:
+                                        if abData['MessageId'] == abUniqueData['MessageId'] and abData['ExperimentVariant'] == abUniqueData['ExperimentVariant']:
+                                            uniAb = abUniqueData
+                                            break
+
+                                    if(float(abData['Sent']) > 0.0):
+                                        delivPct = float(abData['Delivered'])/float(abData['Sent']) * 100.0
+                                        bouncePct = float(abData['Bounce'])/float(abData['Sent']) * 100.0
+                                    if(float(abData['Delivered']) > 0.0):
+                                        openPct = float(abData['Open'])/float(abData['Delivered']) * 100.0
+                                        spamPct = float(abData['Spam'])/float(abData['Delivered']) * 100.0
+                                        uniqueOpenPct = float(uniAb['Unique_Open'])/float(abData['Delivered']) * 100.0
+                                        uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
+                                    numString += "\"" + abData['SubjectLine'] + " -- " + abData['ExperimentVariant'] + "\","
+
+                                    numString += str(abData['Sent']) + ","
+                                    numString += str(abData['Delivered']) + ","
+                                    numString += str(delivPct)[:4] + "%,"
+                                    numString += str(abData['Open']) + ","
+                                    numString += str(openPct)[:4] + "%,"
+                                    numString += str(uniAb['Unique_Open']) + ","
+                                    numString += str(uniqueOpenPct)[:4] + "%,"
+                                    numString += str(uniAb['Unique_Click']) + ","
+                                    numString += str(uniqueClickPct)[:4] + "%,"
+                                    numString += str(abData['Bounce']) + ","
+                                    numString += str(bouncePct)[:4] + "%,"
+                                    numString += str(abData['Dropped']) + ","
+                                    numString += str(abData['Unsubscribe']) + ","
+                                    numString += str(abData['Spam']) + ","
+                                    numString += str(spamPct)[:4] + ","
+                                    numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['AppId']) + "#/" + str(appBundle['AppId']) + "/messaging/" + str(abData['MessageId']) + "\n"
+
+                                    file.write(numString.encode('utf-8'))
+                                    
+                                #Finished looping over AB Variants
+                                break
+
+                            else:
+                            
                                 delivPct = 0.0
                                 bouncePct = 0.0
                                 openPct = 0.0

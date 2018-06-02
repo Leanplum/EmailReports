@@ -19,7 +19,7 @@ E3.grid(row=2, column=1)
 def validDate():
     startDate = E2.get()
     endDate = E3.get()
-    if( (int(endDate) - int(startDate)) > 30 ):
+    if( (int(endDate) - int(startDate)) > 30 or int(endDate) - int(startDate) < 0):
         return False
     else:
         return True
@@ -29,14 +29,14 @@ def runDomain():
     if( validDate() ):
         email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'d')
     else:
-        print("Time Range Over 30 Days. Cancelling Query")
+        print("Time Range Over 30 Days Or Reversed. Cancelling Query")
     
 def runSubject():
     print('Running Subject Report on Company ID ', E1.get())
     if( validDate() ):
         email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'s')
     else:
-        print("Time Range Over 30 Days. Cancelling Query")
+        print("Time Range Over 30 Days Or Reversed. Cancelling Query")
     
 Button(top, text='Start Subject Report', command=runSubject).grid(row=3,column=0)
 Button(top, text='Start Domain Report', command=runDomain).grid(row=3,column=1)

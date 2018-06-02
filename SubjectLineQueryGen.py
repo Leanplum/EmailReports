@@ -49,7 +49,7 @@ def subject_line_query(startDate, endDate, appId, level=0):
 	query = """--Get All Subject Lines
 SELECT 
 	vars.value.text as SubjectLine,
-	study.id as Messageid
+	study.id as MessageId
 FROM
 	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
 		TIMESTAMP('""" + startDate + """'),
@@ -82,12 +82,13 @@ def create_experiment_message_query(startDate, endDate, appId, level=0):
 	query="""--GET ALL VariantId's and their MessageId's
 SELECT
 	__key__.id as VariantId,
-	SUBSTR(vars.name,12) as MessageId
+	SUBSTR(vars.name,12,16) as MessageId,
+	vars.value.text as SubjectLine
 FROM
 	TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
 		TIMESTAMP('"""+startDate+"""'),
 		TIMESTAMP('"""+endDate+"""'))
-WHERE REGEXP_MATCH(SUBSTR(vars.name,12),r'([0-9]{16})')
+WHERE REGEXP_MATCH(vars.name,r'__message__([0-9]{16}).Subject$')
 GROUP BY VariantId, MessageId"""
 	return query
 
@@ -96,6 +97,7 @@ def join_email_ab_events_with_experiments(startDate, endDate, appId, level=0):
 SELECT
 	Session.MessageId as MessageId,
 	Session.ExperimentVariant as ExperimentVariant,
+	Experiment.SubjectLine as SubjectLine,
   	SUM(IF(Session.Event="Sent", Session.Occurrence, 0)) as Sent,
   	SUM(IF(Session.Event="Delivered", Session.Occurrence, 0)) AS Delivered,
   	SUM(IF(Session.Event="Open", Session.Occurrence, 0)) AS Open,
