@@ -236,19 +236,21 @@ def runReport(companyId, startDate, endDate, reportType):
                     continue
 
                 abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
+                #print(abQuery,flush=True)
                 abJob = bq_client.query(abQuery)
                 print("\t\tRunning AB Query", flush=True)
-                bq_client.wait_for_job(abJob[0],timeout=180)
+                bq_client.wait_for_job(abJob[0],timeout=240)
                 print("\t\tQuery Success", flush=True)
                 abResults = bq_client.get_query_rows(abJob[0])
+                print("\t\t" + str(len(abResults)) + " Variants Found",flush=True)
 
                 abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
                 abUniqueJob = bq_client.query(abUniqueQuery)
                 print("\t\tRunning AB Unique Query", flush=True)
-                bq_client.wait_for_job(abJob[0],timeout=180)
+                bq_client.wait_for_job(abUniqueJob[0],timeout=240)
                 print("\t\tQuery Success", flush=True)
                 abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
-
+                print("\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
 
                 #Loop through all the MessageId's that we gathered from the AppId
                 for item in subjectResults:
@@ -256,30 +258,36 @@ def runReport(companyId, startDate, endDate, reportType):
                         if(uni['MessageId'] == item['MessageId']):
                             if(int(item['Sent'] == 0)):
                                 break
-                            
+                            print("Checking Message Id : " + str(item['MessageId']),flush=True)
+
                             #print(abResults,flush=True)
                             #print(abUniqueResults,flush=True)
                             #Check if this messageId is apart of an AB Test
                             inExperiment = False
                             abDataRows = []
-                            for abData in abResults:
-                                if item['MessageId'] == abData['MessageId']:
-                                    abDataRows += abData
+                            for abInitialData in abResults:
+                                if( str(item['MessageId']) == str(abInitialData['MessageId'])):
+                                    abDataRows += [abInitialData]
                                     inExperiment = True
 
                             numString = ""
 
                             if(inExperiment):
-
+                                print("\nAB DATA ROWS\n",flush=True)
+                                print(abDataRows,flush=True)
                                 abUniqueDataRows = []
 
                                 #Grab Unique Rows now that we know we have AB data
                                 for abUniqueData in abUniqueResults:
                                     if item['MessageId'] == abUniqueData['MessageId']:
-                                        abUniqueDataRows += abUniqueData
+                                        abUniqueDataRows += [abUniqueData]
 
+                                counter = 1
                                 #Loop through variants
                                 for abData in abDataRows:
+                                    print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
+                                    counter += 1
+
                                     delivPct = 0.0
                                     bouncePct = 0.0
                                     openPct = 0.0
@@ -287,9 +295,9 @@ def runReport(companyId, startDate, endDate, reportType):
                                     uniqueClickPct = 0.0
                                     spamPct = 0.0
 
-                                    uniAb = []
+                                    uniAb = {}
                                     for abUniqueData in abUniqueDataRows:
-                                        if abData['MessageId'] == abUniqueData['MessageId'] and abData['ExperimentVariant'] == abUniqueData['ExperimentVariant']:
+                                        if( (abData['MessageId'] == abUniqueData['MessageId']) and (abData['ExperimentVariant'] == abUniqueData['ExperimentVariant']) ):
                                             uniAb = abUniqueData
                                             break
 
@@ -301,7 +309,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                         spamPct = float(abData['Spam'])/float(abData['Delivered']) * 100.0
                                         uniqueOpenPct = float(uniAb['Unique_Open'])/float(abData['Delivered']) * 100.0
                                         uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
-                                    numString += "\"" + abData['SubjectLine'] + " -- " + abData['ExperimentVariant'] + "\","
+                                    numString += "\"" + str(item['Subject']) + " --Variant " + str(abData['ExperimentVariant']) + "\","
 
                                     numString += str(abData['Sent']) + ","
                                     numString += str(abData['Delivered']) + ","
@@ -317,11 +325,12 @@ def runReport(companyId, startDate, endDate, reportType):
                                     numString += str(abData['Dropped']) + ","
                                     numString += str(abData['Unsubscribe']) + ","
                                     numString += str(abData['Spam']) + ","
-                                    numString += str(spamPct)[:4] + ","
+                                    numString += str(spamPct)[:4] + "%,"
                                     numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['AppId']) + "#/" + str(appBundle['AppId']) + "/messaging/" + str(abData['MessageId']) + "\n"
 
                                     file.write(numString.encode('utf-8'))
-                                    
+                                    numString = ""
+                                    print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
                                 #Finished looping over AB Variants
                                 break
 
