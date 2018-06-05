@@ -12,6 +12,9 @@ import argparse
 import os
 import re
 import subprocess
+import DomainLineQueryGen as DomainGenerator
+import SubjectLineQueryGen as SubjectGenerator
+
 
 #List of domains to breakout
 Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\")"
@@ -120,331 +123,6 @@ def load_table(service, client, date, bucket, dataset, model):
         #else:
             #print("Model : " + model + "_backup - " + date + " Exists", flush=True)
 
-#This Query is intentionally wrong. When Querying against the study table, I have added the eventtime and am grouping on it. THis 
-# is to ensure that we count unique's per day not per message. This is wrong BUT it is what our analytics shows and we would rather
-# be consistant than right.
-def create_domain_unique_query(appId, startDate, endDate, attrLoc):
-    query = """
-        --MultiLine
-    SELECT
-      Dom.MessageID as MessageID,
-      Dom.Domain as Domain,
-      SUM(IF(Dom.Event = "Open", Dom.Occur,0)) AS Unique_Open,
-      SUM(IF(Dom.Event = "Click", Dom.Occur,0)) AS Unique_Click
-    FROM
-        (SELECT
-          Sessions.Ses_Message_ID AS MessageID,
-          CASE
-            WHEN (REGEXP_EXTRACT(Sessions.Email, r'@(.+)') NOT IN """ + Domains + """ OR REGEXP_EXTRACT(Sessions.Email, r'@(.+)') IS NULL ) THEN "Other" 
-            ELSE REGEXP_EXTRACT(Sessions.Email, r'@(.+)')
-          END AS Domain,
-          CASE
-            WHEN Sessions.Ses_Event="" THEN "Sent"
-            ELSE Sessions.Ses_Event
-          END AS Event,
-          COUNT(Sessions.Ses_Event) AS Occur
-        FROM
-          (SELECT
-            user_id,
-            INTEGER(SUBSTR(states.events.name,3,16)) AS Ses_Message_ID,
-            attr"""+ attrLoc + """ as Email,
-            SUBSTR(states.events.name, 20) AS Ses_Event,
-            SUBSTR(FORMAT_UTC_USEC(INTEGER(states.events.time) *1000000),0,10) AS eventtime
-          FROM
-            (TABLE_DATE_RANGE([leanplum2:leanplum.s_""" + appId + """_],
-              TIMESTAMP('""" + startDate + """'),
-              TIMESTAMP('""" + endDate + """')))
-          WHERE states.events.name LIKE ".m%"
-          GROUP BY user_id, Ses_Message_ID, Ses_Event, Email, eventtime) Sessions
-        JOIN
-          (SELECT
-            app.id,
-            __key__.id as Study_Message_ID,
-          FROM
-            (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-              TIMESTAMP('""" + startDate + """'),
-              TIMESTAMP('""" + endDate + """')))
-          WHERE action_type = "__Email" AND app.id = INTEGER(\"""" + appId + """\")
-          GROUP BY app.id, Study_Message_ID) Study
-        ON Study.Study_Message_ID = Sessions.Ses_Message_ID
-        GROUP BY MessageID, Domain, Event) AS Dom
-    GROUP BY MessageID, Domain
-    ORDER BY MessageID
-    """
-
-    return query
-
-def create_domain_line_query(appId, startDate, endDate, attrLoc):
-    query = """
-        --Multiline
-    SELECT
-        A.MessageName as MessageName,
-        B.MessageID as MessageID,
-        B.Domain as Domain,
-        B.Sent as Sent,
-        B.Delivered as Delivered,
-        B.Open as Open,
-        B.Click as Click,
-        B.Bounce as Bounce,
-        B.Dropped as Dropped,
-        B.Block as Block,
-        B.Unsubscribe as Unsubscribe,
-        ROW_NUMBER() OVER(PARTITION BY B.MessageID, B.Domain ORDER BY A.Time DESC) AS ID,
-        A.Type as Type,
-    FROM
-    (SELECT
-        last_change_time as time,
-        name as MessageName,
-        __key__.id as MessageId,
-        CASE
-          WHEN delivery_type = INTEGER("0") THEN "Immediate"
-          WHEN delivery_type = INTEGER("1") THEN "Future"
-          WHEN delivery_type = INTEGER("2") THEN "Manual"
-          WHEN delivery_type = INTEGER("3") THEN "Triggered Local"
-          WHEN delivery_type = INTEGER("4") THEN "Triggered Server"
-          WHEN delivery_type = INTEGER("5") THEN "Recurring"
-          ELSE "Unknown"
-        END AS Type
-    FROM
-        (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-            TIMESTAMP('""" + startDate + """'),
-            TIMESTAMP('""" + endDate + """')))) A
-    JOIN
-    (SELECT
-      Fin.MessageID as MessageID,
-      Fin.Domain as Domain,
-      SUM(IF(Fin.Event = "Sent", Fin.Occur,0)) AS Sent,
-      SUM(IF(Fin.Event = "Delivered", Fin.Occur,0)) AS Delivered,
-      SUM(IF(Fin.Event = "Open", Fin.Occur,0)) AS Open,
-      SUM(IF(Fin.Event = "Click", Fin.Occur,0)) AS Click,
-      SUM(IF(Fin.Event = "Bounce", Fin.Occur,0)) AS Bounce,
-      SUM(IF(Fin.Event = "Dropped", Fin.Occur,0)) AS Dropped,
-      SUM(IF(Fin.Event = "Block", Fin.Occur,0)) AS Block,
-      SUM(IF(Fin.Event = "Unsubscribe", Fin.Occur,0)) AS Unsubscribe,
-    FROM
-      (SELECT
-        Dom.MessageID AS MessageID,
-        Dom.Domain AS Domain,
-        Dom.Sessions.Ses_Event AS Event,
-        SUM(Dom.Occur) AS Occur
-      FROM
-        (SELECT
-          Sessions.Ses_Message_ID as MessageID,
-          CASE
-            WHEN (REGEXP_EXTRACT(Sessions.Email, r'@(.+)') NOT IN """ + Domains + """ OR REGEXP_EXTRACT(Sessions.Email, r'@(.+)') IS NULL ) THEN "Other" 
-            ELSE REGEXP_EXTRACT(Sessions.Email, r'@(.+)')
-          END AS Domain,
-          CASE
-            WHEN Sessions.Ses_Event="" THEN "Sent"
-            ELSE Sessions.Ses_Event
-          END AS Sessions.Ses_Event,
-          Ses_Total_Occur AS Occur
-        FROM
-          (SELECT
-            INTEGER(SUBSTR(states.events.name,3,16)) AS Ses_Message_ID,
-            attr"""+ attrLoc + """ as Email,
-            SUBSTR(states.events.name, 20) AS Ses_Event,
-            COUNT(*) as Ses_Total_Occur
-          FROM
-            (TABLE_DATE_RANGE([leanplum2:leanplum.s_""" + appId + """_],
-              TIMESTAMP('""" + startDate + """'),
-              TIMESTAMP('""" + endDate + """')))
-          WHERE states.events.name LIKE ".m%"
-          GROUP BY Ses_Message_ID, Ses_Event, Email) Sessions
-        JOIN
-          (SELECT
-            app.id,
-            __key__.id as Study_Message_ID,
-          FROM
-            (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-              TIMESTAMP('""" + startDate + """'),
-              TIMESTAMP('""" + endDate + """')))
-          WHERE action_type = "__Email" AND app.id = INTEGER(\"""" + appId + """\")
-          GROUP BY app.id, Study_Message_ID) Study
-        ON Study.Study_Message_ID = Sessions.Ses_Message_ID) AS Dom
-      GROUP BY MessageID, Domain, Event) Fin
-    GROUP BY MessageID, Domain
-    ORDER BY MessageID) B
-    ON A.MessageId = B.MessageID
-    GROUP BY MessageName, MessageID, B.MessageID, Domain, B.Domain, Sent, Delivered, Open, Click, Bounce, Dropped, Block, Unsubscribe, A.time, Type
-    ORDER BY MessageID, Domain
-    """
-    return query
-
-def create_subject_line_query(companyId, appId, startDate, endDate):
-    query = """
-    --Last) Merge
-    SELECT
-        Subject.subject as Subject,
-        Subject.messageid as MessageId,
-        Message.Sent as Sent,
-        Message.Delivered as Delivered,
-        Message.Open as Open,
-        Message.Click as Click,
-        Message.Bounce as Bounce,
-        Message.Dropped as Dropped,
-        Message.Block as Block,
-        Message.Unsubscribe as Unsubscribe
-    FROM
-    --Fifth) Get all subject lines 
-        (SELECT 
-            vars.value.text as subject,
-            study.id as messageid
-        FROM
-            (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
-                TIMESTAMP('""" + startDate + """'),
-                TIMESTAMP('""" + endDate + """'))) 
-        WHERE vars.name="Subject") Subject
-    JOIN
-    --Fourth) Pivot Table (Get Sums)
-        (SELECT
-            Sessions.ses_Messageid as Messageid,
-            SUM(IF(Sessions.ses_event="Sent", Sessions.ses_total_occur, 0)) AS Sent,
-            SUM(IF(Sessions.ses_event="Delivered", Sessions.ses_total_occur, 0)) AS Delivered,
-            SUM(IF(Sessions.ses_event="Open", Sessions.ses_total_occur, 0)) AS Open,
-            SUM(IF(Sessions.ses_event="Click", Sessions.ses_total_occur, 0)) AS Click,
-            SUM(IF(Sessions.ses_event="Bounce", Sessions.ses_total_occur, 0)) AS Bounce,
-            SUM(IF(Sessions.ses_event="Dropped", Sessions.ses_total_occur, 0)) AS Dropped,
-            SUM(IF(Sessions.ses_event="Block", Sessions.ses_total_occur, 0)) AS Block,
-            SUM(IF(Sessions.ses_event="Unsubscribe", Sessions.ses_total_occur, 0)) AS Unsubscribe
-        FROM(
-    --Third)Get userId's, messageId's, and message types that are in the message list for this appId
-            SELECT 
-                Sessions.ses_Messageid,
-                CASE
-                    WHEN Sessions.ses_event="" THEN "Sent"
-                    ELSE Sessions.ses_event
-                    END AS Sessions.ses_event,
-                Sessions.ses_total_occur
-            FROM
-    --All messages for AppID
-                (SELECT
-    --user_id, might need to group by since userid's are repeated
-                    INTEGER(SUBSTR(states.events.name,3,16)) AS ses_Messageid,
-                    SUBSTR(states.events.name, 20) AS ses_event,
-                    count(*) as ses_total_occur
-                FROM
-    --(Script will place in the appid and TIME_DATE_RANGE the range of sessions)
-                    (TABLE_DATE_RANGE([leanplum2:leanplum.s_"""+ appId + """_],
-                        TIMESTAMP('""" + startDate + """'),
-                        TIMESTAMP('""" + endDate + """')))
-                WHERE states.events.name LIKE ".m%"
-                GROUP BY ses_Messageid, ses_event) Sessions
-            INNER JOIN
-                (SELECT 
-                    Study.study_MessageID
-                FROM
-    --First)Get App Id's from Company Id's
-                    (SELECT
-                        company.id as app_CompanyID,
-                        name as app_AppName,
-                        __key__.id as app_AppID
-                    FROM 
-    --Probably only need the most recent datetime.today()
-                        [leanplum-staging:email_report_backups.App_""" + endDate + """]
-                    WHERE STRING(company.id) ='""" + companyId + """') App
-                INNER JOIN
-    --Second)Get Email Message Id's from Appid's. (Use appids in python script for third query)
-                    (SELECT
-                        app.id as study_AppId,
-                        __key__.id as study_MessageID
-                    FROM
-                        (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-                            TIMESTAMP('""" + startDate + """'),
-                            TIMESTAMP('""" + endDate + """'))) 
-                    WHERE action_type = "__Email" ) Study
-                ON App.app_AppId = Study.study_AppId
-                GROUP BY Study.study_MessageID) Sub
-            ON Sessions.ses_Messageid = Sub.Study.study_MessageID
-            ORDER BY Sessions.ses_Messageid, Sessions.ses_event)
-        GROUP BY Messageid) Message
-    ON Subject.messageid = Message.Messageid
-    GROUP BY Subject, MessageId, Sent, Delivered, Open, Click, Bounce, Dropped, Block, Unsubscribe
-    """
-    return query
-
-def create_subject_line_uniq_query(companyId, appId, startDate, endDate):
-    query = """
-    --Grab Subject
-    SELECT
-        Subject.subject as Subject,
-        Subject.messageid as MessageId,
-        Message.Unique_Open as Unique_Open,
-        Message.Unique_Click as Unique_Click
-    FROM
-        --Fifth) Get all subject lines 
-        (SELECT 
-            vars.value.text as subject,
-            study.id as messageid
-        FROM
-            (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
-                TIMESTAMP('""" + startDate + """'),
-                TIMESTAMP('""" + endDate + """')))
-        WHERE vars.name="Subject") Subject
-    JOIN
-        --Fourth) Pivot Table (Get Sums)
-        (SELECT
-            Sessions.ses_Messageid as Messageid,
-            SUM(IF(Sessions.ses_event="Open", unique_total, 0)) AS Unique_Open,
-            SUM(IF(Sessions.ses_event="Click", unique_total, 0)) AS Unique_Click
-        FROM(
-            --Third)Get userId's, messageId's, and message types that are in the message list for this appId
-            SELECT 
-                Sessions.ses_Messageid,
-                CASE
-                    WHEN Sessions.ses_event="" THEN "Sent"
-                    ELSE Sessions.ses_event
-                    END AS Sessions.ses_event,
-                COUNT(Sessions.ses_event) as unique_total
-            FROM
-                --All messages for AppID
-                (SELECT
-                    user_id,
-                    INTEGER(SUBSTR(states.events.name,3,16)) AS ses_Messageid,
-                    SUBSTR(states.events.name, 20) AS ses_event,
-                    count(*) as ses_total_occur,
-                    SUBSTR(FORMAT_UTC_USEC(INTEGER(states.events.time) *1000000),0,10) AS eventtime
-                FROM
-                    --(Script will place in the appid and TIME_DATE_RANGE the range of sessions)
-                    (TABLE_DATE_RANGE([leanplum2:leanplum.s_"""+ appId + """_],
-                        TIMESTAMP('""" + startDate + """'),
-                        TIMESTAMP('""" + endDate + """')))
-                        WHERE states.events.name LIKE ".m%"
-                GROUP BY user_id, ses_Messageid, ses_event, eventtime) Sessions
-            INNER JOIN
-                (SELECT Study.study_MessageID
-                FROM
-                    --First)Get App Id's from Company Id's
-                    (SELECT
-                        company.id as app_CompanyID,
-                        name as app_AppName,
-                        __key__.id as app_AppID
-                    FROM 
-                        --Probably only need the most recent datetime.today()
-                        [leanplum-staging:email_report_backups.App_""" + endDate + """]
-                    WHERE STRING(company.id) ='""" + companyId + """') App
-                INNER JOIN
-                    --Second)Get Email Message Id's from Appid's. (Use appids in python script for third query)
-                    (SELECT
-                        app.id as study_AppId,
-                        __key__.id as study_MessageID
-                    FROM
-                        (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-                            TIMESTAMP('""" + startDate + """'),
-                            TIMESTAMP('""" + endDate + """')))  
-                    WHERE action_type = "__Email" ) Study
-                ON App.app_AppId = Study.study_AppId
-                GROUP BY Study.study_MessageID) Sub
-            ON Sessions.ses_Messageid = Sub.Study.study_MessageID
-            GROUP BY Sessions.ses_Messageid, Sessions.ses_event
-            ORDER BY Sessions.ses_Messageid, Sessions.ses_event)
-        GROUP BY Messageid) Message
-    ON Subject.messageid = Message.Messageid
-    GROUP BY Subject, MessageId, Unique_Open, Unique_Click
-    """
-
-    return query
-
 def create_default_sender_email_query(appId, endDate):
     query = """
     --GRAB FROM ADDRESS 
@@ -459,7 +137,7 @@ def create_sender_email_query(startDate, endDate):
     query = """
         ---Grab Sender emails
         SELECT
-            study.id AS MessageID,
+            study.id AS MessageId,
             vars.value.text AS SenderEmail,
         FROM
             (TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
@@ -474,9 +152,9 @@ def create_appids_query(companyId, endDate):
     appids = """
         --Grab ID's
         SELECT
-            company.id as app_CompanyID,
-            name as app_AppName,
-            __key__.id as app_AppID
+            company.id as CompanyId,
+            name as AppName,
+            __key__.id as AppId
         FROM
             [leanplum-staging:email_report_backups.App_""" + endDate + """]
         WHERE STRING(company.id) = '""" + companyId + "\'"
@@ -527,22 +205,23 @@ def runReport(companyId, startDate, endDate, reportType):
 
         #Loop through all App Id's
         for appBundle in appResults:
-            print("\n\tQuerying Data for " + appBundle['app_AppName'] + ":" + str(appBundle['app_AppID']))
+            print("\n\tQuerying Data for " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
 
             #In case the query fails because of missing data or a test app
             try:
-                fileName = "EmailData_" + str(appBundle['app_AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                fileName = "EmailData_" + str(appBundle['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
                 file = open(fileName, "wb")
-                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,MessageLink\n".encode('utf-8'))
+                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
-                subjectLineQuery = create_subject_line_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
+                subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
                 subjectLineJob = bq_client.query(subjectLineQuery)
                 print("\t\tRunning Query", flush=True)
                 bq_client.wait_for_job(subjectLineJob[0],timeout=120)
                 print("\t\tQuery Success", flush=True)
                 subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
-                uniqLineQuery = create_subject_line_uniq_query(companyId, str(appBundle['app_AppID']), startDate, endDate)
+                uniqLineQuery = SubjectGenerator.create_unique_line_query(startDate, endDate, str(appBundle['AppId']))
+                #print(uniqLineQuery,flush=True)
                 uniqLineJob = bq_client.query(uniqLineQuery)
                 print("\t\tRunning Query for Uniques", flush=True)
                 bq_client.wait_for_job(uniqLineJob[0],timeout=120)
@@ -556,50 +235,145 @@ def runReport(companyId, startDate, endDate, reportType):
                     os.remove(fileName)
                     continue
 
+                abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
+                #print(abQuery,flush=True)
+                abJob = bq_client.query(abQuery)
+                print("\t\tRunning AB Query", flush=True)
+                bq_client.wait_for_job(abJob[0],timeout=240)
+                print("\t\tQuery Success", flush=True)
+                abResults = bq_client.get_query_rows(abJob[0])
+                print("\t\t" + str(len(abResults)) + " Variants Found",flush=True)
+
+                abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
+                abUniqueJob = bq_client.query(abUniqueQuery)
+                print("\t\tRunning AB Unique Query", flush=True)
+                bq_client.wait_for_job(abUniqueJob[0],timeout=240)
+                print("\t\tQuery Success", flush=True)
+                abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
+                print("\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
+
                 #Loop through all the MessageId's that we gathered from the AppId
                 for item in subjectResults:
                     for uni in uniqResults:
                         if(uni['MessageId'] == item['MessageId']):
                             if(int(item['Sent'] == 0)):
                                 break
+                            print("Checking Message Id : " + str(item['MessageId']),flush=True)
+
+                            #print(abResults,flush=True)
+                            #print(abUniqueResults,flush=True)
+                            #Check if this messageId is apart of an AB Test
+                            inExperiment = False
+                            abDataRows = []
+                            for abInitialData in abResults:
+                                if( str(item['MessageId']) == str(abInitialData['MessageId'])):
+                                    abDataRows += [abInitialData]
+                                    inExperiment = True
 
                             numString = ""
 
-                            delivPct = 0.0
-                            bouncePct = 0.0
-                            openPct = 0.0
-                            uniqueOpenPct = 0.0
-                            uniqueClickPct = 0.0
+                            if(inExperiment):
+                                print("\nAB DATA ROWS\n",flush=True)
+                                print(abDataRows,flush=True)
+                                abUniqueDataRows = []
 
-                            if(float(item['Sent']) > 0.0):
-                                delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
-                                bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
-                            if(float(item['Delivered']) > 0.0):
-                                openPct = float(item['Open'])/float(item['Delivered']) * 100.0
-                                uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
-                                uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
+                                #Grab Unique Rows now that we know we have AB data
+                                for abUniqueData in abUniqueResults:
+                                    if item['MessageId'] == abUniqueData['MessageId']:
+                                        abUniqueDataRows += [abUniqueData]
 
-                            numString += "\"" + item['Subject'] + "\","
-                            #Removing MessageID as Excel malforms it.
-                            #numString += str(item['MessageId']) + ","
-                            numString += str(item['Sent']) + ","
-                            numString += str(item['Delivered']) + ","
-                            numString += str(delivPct)[:4] + "%,"
-                            numString += str(item['Open']) + ","
-                            numString += str(openPct)[:4] + "%,"
-                            numString += str(uni['Unique_Open']) + ","
-                            numString += str(uniqueOpenPct)[:4] + "%,"
-                            numString += str(uni['Unique_Click']) + ","
-                            numString += str(uniqueClickPct)[:4] + "%,"
-                            numString += str(item['Bounce']) + ","
-                            numString += str(bouncePct)[:4] + "%,"
-                            numString += str(item['Dropped']) + ","
-                            numString += str(item['Unsubscribe']) + ","
-                            numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['app_AppID']) + "#/" + str(appBundle['app_AppID']) + "/messaging/" + str(item['MessageId']) + "\n"
+                                counter = 1
+                                #Loop through variants
+                                for abData in abDataRows:
+                                    print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
+                                    counter += 1
+
+                                    delivPct = 0.0
+                                    bouncePct = 0.0
+                                    openPct = 0.0
+                                    uniqueOpenPct = 0.0
+                                    uniqueClickPct = 0.0
+                                    spamPct = 0.0
+
+                                    uniAb = {}
+                                    for abUniqueData in abUniqueDataRows:
+                                        if( (abData['MessageId'] == abUniqueData['MessageId']) and (abData['ExperimentVariant'] == abUniqueData['ExperimentVariant']) ):
+                                            uniAb = abUniqueData
+                                            break
+
+                                    if(float(abData['Sent']) > 0.0):
+                                        delivPct = float(abData['Delivered'])/float(abData['Sent']) * 100.0
+                                        bouncePct = float(abData['Bounce'])/float(abData['Sent']) * 100.0
+                                    if(float(abData['Delivered']) > 0.0):
+                                        openPct = float(abData['Open'])/float(abData['Delivered']) * 100.0
+                                        spamPct = float(abData['Spam'])/float(abData['Delivered']) * 100.0
+                                        uniqueOpenPct = float(uniAb['Unique_Open'])/float(abData['Delivered']) * 100.0
+                                        uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
+                                    numString += "\"" + str(item['Subject']) + " --Variant " + str(abData['ExperimentVariant']) + "\","
+
+                                    numString += str(abData['Sent']) + ","
+                                    numString += str(abData['Delivered']) + ","
+                                    numString += str(delivPct)[:4] + "%,"
+                                    numString += str(abData['Open']) + ","
+                                    numString += str(openPct)[:4] + "%,"
+                                    numString += str(uniAb['Unique_Open']) + ","
+                                    numString += str(uniqueOpenPct)[:4] + "%,"
+                                    numString += str(uniAb['Unique_Click']) + ","
+                                    numString += str(uniqueClickPct)[:4] + "%,"
+                                    numString += str(abData['Bounce']) + ","
+                                    numString += str(bouncePct)[:4] + "%,"
+                                    numString += str(abData['Dropped']) + ","
+                                    numString += str(abData['Unsubscribe']) + ","
+                                    numString += str(abData['Spam']) + ","
+                                    numString += str(spamPct)[:4] + "%,"
+                                    numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['AppId']) + "#/" + str(appBundle['AppId']) + "/messaging/" + str(abData['MessageId']) + "\n"
+
+                                    file.write(numString.encode('utf-8'))
+                                    numString = ""
+                                    print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
+                                #Finished looping over AB Variants
+                                break
+
+                            else:
+                            
+                                delivPct = 0.0
+                                bouncePct = 0.0
+                                openPct = 0.0
+                                uniqueOpenPct = 0.0
+                                uniqueClickPct = 0.0
+                                spamPct = 0.0
+
+                                if(float(item['Sent']) > 0.0):
+                                    delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
+                                    bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
+                                if(float(item['Delivered']) > 0.0):
+                                    openPct = float(item['Open'])/float(item['Delivered']) * 100.0
+                                    spamPct = float(item['Spam'])/float(item['Delivered']) * 100.0
+                                    uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
+                                    uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
+                                numString += "\"" + item['Subject'] + "\","
+                                #Removing MessageID as Excel malforms it.
+                                #numString += str(item['MessageId']) + ","
+                                numString += str(item['Sent']) + ","
+                                numString += str(item['Delivered']) + ","
+                                numString += str(delivPct)[:4] + "%,"
+                                numString += str(item['Open']) + ","
+                                numString += str(openPct)[:4] + "%,"
+                                numString += str(uni['Unique_Open']) + ","
+                                numString += str(uniqueOpenPct)[:4] + "%,"
+                                numString += str(uni['Unique_Click']) + ","
+                                numString += str(uniqueClickPct)[:4] + "%,"
+                                numString += str(item['Bounce']) + ","
+                                numString += str(bouncePct)[:4] + "%,"
+                                numString += str(item['Dropped']) + ","
+                                numString += str(item['Unsubscribe']) + ","
+                                numString += str(item['Spam']) + ","
+                                numString += str(spamPct)[:4] + ","
+                                numString += "https://www.leanplum.com/dashboard?appId=" +  str(appBundle['AppId']) + "#/" + str(appBundle['AppId']) + "/messaging/" + str(item['MessageId']) + "\n"
 
 
-                            file.write(numString.encode('utf-8'))
-                            break
+                                file.write(numString.encode('utf-8'))
+                                break
                 file.close() 
 
                 #Clean up zero records for valid queries (This happens when unique results don't match with subjectResults)
@@ -654,22 +428,15 @@ def runReport(companyId, startDate, endDate, reportType):
 
                 #In case the query fails because of missing data or a test app
                 try:
-                    print("\n\tQuerying Data for " + app['app_AppName'] + ":" + str(app['app_AppID']))
-                    fileName = "EmailData_" + str(app['app_AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    print("\n\tQuerying Data for " + app['AppName'] + ":" + str(app['AppId']))
+                    fileName = "EmailData_" + str(app['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
                     file = open(fileName, "wb")
-                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Type,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
                     attrLoc = ''
 
-                    #Check if our attribute location was previously found - if not request lookup and append to file
-                    # if str(app['app_AppID']) in attrDict:
-                    #     attrLoc = attrDict[str(app['app_AppID'])]
-                    # else:
-                    #     attrLoc = input("Please enter location of email attribute for " + str(app['app_AppName'] + ": " + str(app['app_AppID']) + " :"))
-                    #     attrFile.write(str(app['app_AppID']) + " :" + str(attrLoc) + "\n")
-
                     #Look up email attr in datastore
-                    appId = int(app['app_AppID'])
+                    appId = int(app['AppId'])
                     #Create datastore entity
                     ds_client = datastore.Client(project='leanplum')
                     query = ds_client.query(kind='App')
@@ -714,14 +481,15 @@ def runReport(companyId, startDate, endDate, reportType):
                     attrLoc = str(emailLoc)
                     print('\t\tEmail Name : ' + emailName + ' : at Location : ' + attrLoc)
 
-                    domainQuery = create_domain_line_query(str(app['app_AppID']), startDate, endDate, attrLoc)
+                    domainQuery = DomainGenerator.create_domain_line_query(startDate, endDate, str(app['AppId']), attrLoc)
+                    print(domainQuery)
                     domainJob = bq_client.query(domainQuery)
                     print("\t\tRunning Query for Domain", flush=True)
                     bq_client.wait_for_job(domainJob[0],timeout=120)
                     print("\t\tQuery Success", flush=True)
                     domainResults = bq_client.get_query_rows(domainJob[0])
 
-                    domainUniqueQuery = create_domain_unique_query(str(app['app_AppID']), startDate, endDate, attrLoc)
+                    domainUniqueQuery = DomainGenerator.create_unique_domain_query(startDate, endDate, str(app['AppId']), attrLoc)
                     domainUniJob = bq_client.query(domainUniqueQuery)
                     print("\t\tRunning Query for Uniques", flush=True)
                     bq_client.wait_for_job(domainUniJob[0],timeout=120)
@@ -735,7 +503,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\t\tQuery Success", flush=True)
                     senderEmailResults = bq_client.get_query_rows(senderJob[0])
 
-                    defaultEmailSenderQuery = create_default_sender_email_query(str(app['app_AppID']), str(endDate))
+                    defaultEmailSenderQuery = create_default_sender_email_query(str(app['AppId']), str(endDate))
                     defaultEmailJob = bq_client.query(defaultEmailSenderQuery)
                     print("\t\tRunning Query for Default Sender Email", flush=True)
                     bq_client.wait_for_job(defaultEmailJob[0],timeout=120)
@@ -743,12 +511,12 @@ def runReport(companyId, startDate, endDate, reportType):
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
                     #Used for All Category
-                    allCategoryDict = {'MessageName':'','MessageID':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
+                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
 
                     #Loop through all results and build report
                     for domainNum in domainResults:
                         for domainUni in domainUniResults:
-                            if(str(domainNum['Domain']) == str(domainUni['Domain']) and str(domainNum['MessageID']) == str(domainUni['MessageID'])):
+                            if(str(domainNum['Domain']) == str(domainUni['Domain']) and str(domainNum['MessageId']) == str(domainUni['MessageId'])):
                                 if(int(domainNum['Sent']) == 0 or int(domainNum['ID']) != 1):
                                     break
                                 numString = ""
@@ -756,7 +524,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
                                 #Look for the sender email
                                 for senderDict in senderEmailResults:
-                                    if str(senderDict['MessageID']) == str(domainNum['MessageID']):
+                                    if str(senderDict['MessageId']) == str(domainNum['MessageId']):
                                         senderEmail = senderDict['SenderEmail']
                                 if( len(senderEmail) == 0 ):
                                     senderEmail = defaultEmail
@@ -765,18 +533,20 @@ def runReport(companyId, startDate, endDate, reportType):
                                 openPct = 0.0
                                 uniqueOpenPct = 0.0
                                 uniqueClickPct = 0.0
+                                spamPct = 0.0
 
                                 if(float(domainNum['Sent']) > 0.0):
                                     delivPct = float(domainNum['Delivered'])/float(domainNum['Sent']) * 100.0
                                     bouncePct = float(domainNum['Bounce'])/float(domainNum['Sent']) * 100.0
                                 if(float(domainNum['Delivered']) > 0.0):
                                     openPct = float(domainNum['Open'])/float(domainNum['Delivered']) * 100.0
+                                    spamPct = float(domainNum['Spam'])/float(domainNum['Delivered']) * 100.0
                                     uniqueOpenPct = float(domainUni['Unique_Open'])/float(domainNum['Delivered']) * 100.0
                                     uniqueClickPct = float(domainUni['Unique_Click'])/float(domainNum['Delivered']) * 100.0
 
-                                if(allCategoryDict['MessageID'] == 0):
-                                    allCategoryDict['MessageID'] = domainNum['MessageID']
-                                elif(allCategoryDict['MessageID'] != domainNum['MessageID']):
+                                if(allCategoryDict['MessageId'] == 0):
+                                    allCategoryDict['MessageId'] = domainNum['MessageId']
+                                elif(allCategoryDict['MessageId'] != domainNum['MessageId']):
                                     #Aggregate
                                     try:
                                         allStr = ''
@@ -796,6 +566,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                         allStr += str(float(allCategoryDict['Bounce'])/float(allCategoryDict['Sent']) * 100.0)[:4] + '%,'
                                         allStr += str(allCategoryDict['Dropped']) + ','
                                         allStr += str(allCategoryDict['Unsubscribe']) + ','
+                                        allStr += str(allCategoryDict['Spam']) + ','
+                                        allStr += str(float(allCategoryDict['Spam'])/float(allCategoryDict['Delivered']) * 100.0)[:4] + '%,'
                                         allStr += str(allCategoryDict['Type']) + ','
                                         allStr += ' \n'
 
@@ -805,8 +577,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     except ZeroDivisionError:
                                         pass
                                     #Zero out and Update
-                                    allCategoryDict = {'MessageName':'','MessageID':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Type':'','MessageLink':''}
-                                    allCategoryDict['MessageID'] = domainNum['MessageID']
+                                    allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
+                                    allCategoryDict['MessageId'] = domainNum['MessageId']
 
                                 numString += "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\","
                                 allCategoryDict['MessageName'] = "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\""
@@ -817,7 +589,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                 allCategoryDict['SenderDomain'] = str(domain)
 
                                 #Removing Message ID as Excel Malforms
-                                #numString += str(domainNum['MessageID']) + ","
+                                #numString += str(domainNum['MessageId']) + ","
                                 numString += str(domainNum['Domain']) + ","
 
                                 numString += str(domainNum['Sent']) + ","
@@ -854,10 +626,15 @@ def runReport(companyId, startDate, endDate, reportType):
                                 numString += str(domainNum['Unsubscribe']) + ","
                                 allCategoryDict['Unsubscribe'] += domainNum['Unsubscribe']
 
+                                numString += str(domainNum['Spam']) + ","
+                                allCategoryDict['Spam'] += domainNum['Spam']
+
+                                numString += str(spamPct)[:4] + "%,"
+
                                 numString += str(domainNum['Type']) + ","
                                 allCategoryDict['Type'] = str(domainNum['Type'])
 
-                                numString += "https://www.leanplum.com/dashboard?appId=" +  str(app['app_AppID']) + "#/" + str(app['app_AppID']) + "/messaging/" + str(domainNum['MessageID']) + "\n"
+                                numString += "https://www.leanplum.com/dashboard?appId=" +  str(app['AppId']) + "#/" + str(app['AppId']) + "/messaging/" + str(domainNum['MessageId']) + "\n"
 
                                 file.write(numString.encode('utf-8'))
                                 break
