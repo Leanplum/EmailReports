@@ -30,7 +30,7 @@ SELECT
 	MessageInfo.Dropped as Dropped,
 	MessageInfo.Block as Block,
 	MessageInfo.Unsubscribe as Unsubscribe,
-	MessageInfo.Spam as Spam
+	MessageInfo.Spam as Spam,
 	ROW_NUMBER() OVER(PARTITION BY MessageInfo.MessageId, MessageInfo.Domain ORDER BY Study.time DESC) AS ID,
 	Study.Type as Type
 FROM

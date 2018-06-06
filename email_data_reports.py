@@ -194,7 +194,8 @@ def runReport(companyId, startDate, endDate, reportType):
     print("\tBackups Loaded")
 
     #Load Subject Report
-    if(reportType == 's'):
+    if(reportType[0] == 's'):
+
         print('\tCreating report by Subject Line')
         appidsQuery = create_appids_query(companyId, endDate)
 
@@ -205,7 +206,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
         #Loop through all App Id's
         for appBundle in appResults:
-            print("\n\tQuerying Data for " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
+            print("\n\tRunning Report on App :: " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
 
             #In case the query fails because of missing data or a test app
             try:
@@ -235,22 +236,33 @@ def runReport(companyId, startDate, endDate, reportType):
                     os.remove(fileName)
                     continue
 
-                abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
-                #print(abQuery,flush=True)
-                abJob = bq_client.query(abQuery)
-                print("\t\tRunning AB Query", flush=True)
-                bq_client.wait_for_job(abJob[0],timeout=240)
-                print("\t\tQuery Success", flush=True)
-                abResults = bq_client.get_query_rows(abJob[0])
-                print("\t\t" + str(len(abResults)) + " Variants Found",flush=True)
+                #Check if we are running AB Reports before we spend the cash money
+                if( reportType[1] == "1" ):
+                    print("\t\t----AB Query On----",flush=True)
+                    abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
+                    #print(abQuery,flush=True)
+                    abJob = bq_client.query(abQuery)
+                    print("\t\tRunning AB Query", flush=True)
+                    bq_client.wait_for_job(abJob[0],timeout=240)
+                    print("\t\tQuery Success", flush=True)
+                    abResults = bq_client.get_query_rows(abJob[0])
+                    print("\t\t\t" + str(len(abResults)) + " Variants Found",flush=True)
 
-                abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
-                abUniqueJob = bq_client.query(abUniqueQuery)
-                print("\t\tRunning AB Unique Query", flush=True)
-                bq_client.wait_for_job(abUniqueJob[0],timeout=240)
-                print("\t\tQuery Success", flush=True)
-                abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
-                print("\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
+                    abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
+                    abUniqueJob = bq_client.query(abUniqueQuery)
+                    print("\t\tRunning AB Unique Query", flush=True)
+                    bq_client.wait_for_job(abUniqueJob[0],timeout=240)
+                    print("\t\tQuery Success", flush=True)
+                    abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
+                    print("\t\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
+
+                    variantSLQuery = SubjectGenerator.variant_subject_line_query(startDate, endDate, str(appBundle['AppId']))
+                    variantSLJob = bq_client.query(variantSLQuery)
+                    print("\t\tRunning AB Subject Line Query", flush=True)
+                    bq_client.wait_for_job(variantSLJob[0],timeout=120)
+                    print("\t\tQuery Success",flush=True)
+                    variantSLResults = bq_client.get_query_rows(variantSLJob[0])
+                    print("\t\t\t" + str(len(variantSLResults)) + " Variant Subject Lines Found", flush=True)
 
                 #Loop through all the MessageId's that we gathered from the AppId
                 for item in subjectResults:
@@ -258,23 +270,23 @@ def runReport(companyId, startDate, endDate, reportType):
                         if(uni['MessageId'] == item['MessageId']):
                             if(int(item['Sent'] == 0)):
                                 break
-                            print("Checking Message Id : " + str(item['MessageId']),flush=True)
 
                             #print(abResults,flush=True)
                             #print(abUniqueResults,flush=True)
                             #Check if this messageId is apart of an AB Test
                             inExperiment = False
                             abDataRows = []
-                            for abInitialData in abResults:
-                                if( str(item['MessageId']) == str(abInitialData['MessageId'])):
-                                    abDataRows += [abInitialData]
-                                    inExperiment = True
+
+                            #Check if we are running AB reports
+                            if( reportType[1] == "1" ):
+                                for abInitialData in abResults:
+                                    if( str(item['MessageId']) == str(abInitialData['MessageId'])):
+                                        abDataRows += [abInitialData]
+                                        inExperiment = True
 
                             numString = ""
 
                             if(inExperiment):
-                                print("\nAB DATA ROWS\n",flush=True)
-                                print(abDataRows,flush=True)
                                 abUniqueDataRows = []
 
                                 #Grab Unique Rows now that we know we have AB data
@@ -285,7 +297,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                 counter = 1
                                 #Loop through variants
                                 for abData in abDataRows:
-                                    print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
+                                    #print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
                                     counter += 1
 
                                     delivPct = 0.0
@@ -301,6 +313,12 @@ def runReport(companyId, startDate, endDate, reportType):
                                             uniAb = abUniqueData
                                             break
 
+                                    variantSL = str(item['Subject'])
+                                    for variantSubjectLines in variantSLResults:
+                                        if( (abData['MessageId'] == variantSubjectLines['MessageId']) and (abData['ExperimentVariant'] == variantSubjectLines['ExperimentVariant']) ):
+                                            variantSL = variantSubjectLines['SubjectLine']
+                                            break
+
                                     if(float(abData['Sent']) > 0.0):
                                         delivPct = float(abData['Delivered'])/float(abData['Sent']) * 100.0
                                         bouncePct = float(abData['Bounce'])/float(abData['Sent']) * 100.0
@@ -309,7 +327,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                         spamPct = float(abData['Spam'])/float(abData['Delivered']) * 100.0
                                         uniqueOpenPct = float(uniAb['Unique_Open'])/float(abData['Delivered']) * 100.0
                                         uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
-                                    numString += "\"" + str(item['Subject']) + " --Variant " + str(abData['ExperimentVariant']) + "\","
+                                    numString += "\"" + str(variantSL) + " --Variant " + str(abData['ExperimentVariant']) + "\","
 
                                     numString += str(abData['Sent']) + ","
                                     numString += str(abData['Delivered']) + ","
@@ -330,7 +348,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
                                     file.write(numString.encode('utf-8'))
                                     numString = ""
-                                    print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
+                                    #print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
                                 #Finished looping over AB Variants
                                 break
 
@@ -428,7 +446,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
                 #In case the query fails because of missing data or a test app
                 try:
-                    print("\n\tQuerying Data for " + app['AppName'] + ":" + str(app['AppId']))
+                    print("\n\tRunning Report on App :: " + app['AppName'] + ":" + str(app['AppId']))
                     fileName = "EmailData_" + str(app['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
                     file = open(fileName, "wb")
                     file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
@@ -482,7 +500,6 @@ def runReport(companyId, startDate, endDate, reportType):
                     print('\t\tEmail Name : ' + emailName + ' : at Location : ' + attrLoc)
 
                     domainQuery = DomainGenerator.create_domain_line_query(startDate, endDate, str(app['AppId']), attrLoc)
-                    print(domainQuery)
                     domainJob = bq_client.query(domainQuery)
                     print("\t\tRunning Query for Domain", flush=True)
                     bq_client.wait_for_job(domainJob[0],timeout=120)
@@ -510,7 +527,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\t\tQuery Success", flush=True)
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
-                    #Used for All Category
+                    #Used for All Category -- keep running track of value for messageId
                     allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
 
                     #Loop through all results and build report

@@ -78,6 +78,21 @@ def create_ab_query(startDate,endDate,appId,level=0):
 	#Wrapper for ab
 	return join_email_ab_events_with_experiments(startDate, endDate, appId, level)
 
+def variant_subject_line_query(startDate, endDate, appId, level=0):
+	query="""--GET ALL VariantId's, ExperimentId's, and MessageId's
+SELECT
+	SUBSTR(vars.name,12,16) as MessageId,
+	vars.value.text as SubjectLine,
+	study.id as ExperimentId,
+	__key__.id as ExperimentVariant
+FROM
+	TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Experiment_],
+		TIMESTAMP('"""+startDate+"""'),
+		TIMESTAMP('"""+endDate+"""'))
+WHERE (vars.name CONTAINS ".Subject")
+GROUP BY MessageId, SubjectLine, ExperimentId, ExperimentVariant"""
+	return query
+
 def create_experiment_message_query(startDate, endDate, appId, level=0):
 	query="""--GET ALL VariantId's and their MessageId's
 SELECT
