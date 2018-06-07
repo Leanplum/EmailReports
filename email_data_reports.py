@@ -696,7 +696,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
                     fileName = "PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
                     file = open(fileName, "wb")
-                    file.write("MessageName,Sent,Open,Open_PCT,Bounce,Held Back,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
 
                     pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
                     pushJob = bq_client.query(pushQuery)
