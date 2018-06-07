@@ -720,8 +720,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     break
                                 else:
 
-                                    openPct = float(pushRows['Open'])/float(pushRows['Sent'])
-                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent'])
+                                    openPct = float(pushRows['Open'])/float(pushRows['Sent']) * 100.0
+                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent']) * 100.0
 
                                     numString = ""
 
