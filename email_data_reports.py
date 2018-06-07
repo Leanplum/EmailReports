@@ -699,7 +699,6 @@ def runReport(companyId, startDate, endDate, reportType):
                     file.write("MessageName,Sent,Open,Open_PCT,Bounce,Held Back,MessageLink\n".encode('utf-8'))
 
                     pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
-                    print(pushQuery,flush=True)
                     pushJob = bq_client.query(pushQuery)
                     print("\t\tRunning Query for Push", flush=True)
                     bq_client.wait_for_job(pushJob[0],timeout=120)
