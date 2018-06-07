@@ -14,6 +14,7 @@ import re
 import subprocess
 import DomainLineQueryGen as DomainGenerator
 import SubjectLineQueryGen as SubjectGenerator
+import PushNotificationQueryGen as PushGenerator
 
 
 #List of domains to breakout
@@ -210,7 +211,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
             #In case the query fails because of missing data or a test app
             try:
-                fileName = "EmailData_" + str(appBundle['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                fileName = "EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
                 file = open(fileName, "wb")
                 file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
@@ -446,8 +447,8 @@ def runReport(companyId, startDate, endDate, reportType):
 
                 #In case the query fails because of missing data or a test app
                 try:
-                    print("\n\tRunning Report on App :: " + app['AppName'] + ":" + str(app['AppId']))
-                    fileName = "EmailData_" + str(app['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
+                    fileName = "EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
                     file = open(fileName, "wb")
                     file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
@@ -679,3 +680,85 @@ def runReport(companyId, startDate, endDate, reportType):
                     pass
             #attrFile.close()
             print("Finished Running Reports")
+    #Push Report
+    elif(reportType == 'p'):
+
+            #Lookup App Id's for the company
+            appidsQuery = create_appids_query(companyId, endDate)
+            appJob = bq_client.query(appidsQuery)
+            bq_client.wait_for_job(appJob[0],timeout=120)
+            appResults = bq_client.get_query_rows(appJob[0])
+
+            #Loop through all App's gathered
+            for app in appResults:
+                #In case the query fails because of missing data or a test app
+                try:
+                    print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
+                    fileName = "PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
+                    file = open(fileName, "wb")
+                    file.write("MessageName,Sent,Open,Open_PCT,Bounce,Held Back,MessageLink\n".encode('utf-8'))
+
+                    pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
+                    print(pushQuery,flush=True)
+                    pushJob = bq_client.query(pushQuery)
+                    print("\t\tRunning Query for Push", flush=True)
+                    bq_client.wait_for_job(pushJob[0],timeout=120)
+                    print("\t\tQuery Success", flush=True)
+                    pushResults = bq_client.get_query_rows(pushJob[0])
+
+                    pushNameQuery = PushGenerator.create_push_message_id_with_name_query(startDate, endDate, str(app['AppId']))
+                    pushNameJob = bq_client.query(pushNameQuery)
+                    print("\t\tRunning Query for Push Names", flush=True)
+                    bq_client.wait_for_job(pushNameJob[0],timeout=120)
+                    print("\t\tQuery Success", flush=True)
+                    pushNameResults = bq_client.get_query_rows(pushNameJob[0])
+
+                    #Loop through results and build report
+                    for pushRows in pushResults:
+                        for pushName in pushNameResults:
+                            if pushRows['MessageId'] == pushName['MessageId']:
+                                if(int(pushRows['Sent']) == 0):
+                                    break
+                                else:
+
+                                    openPct = float(pushRows['Open'])/float(pushRows['Sent'])
+                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent'])
+
+                                    numString = ""
+
+                                    numString += "\"" + str(pushName['Name']) + "\","
+                                    numString += str(pushRows['Sent']) + ","
+                                    numString += str(pushRows['Open']) + ","
+                                    numString += str(openPct)[:4] + "%,"
+                                    numString += str(pushRows['Held_Back']) + ","
+                                    numString += str(pushRows['Bounce']) + ","
+                                    numString += str(bouncePCT)[:4] + "%,"
+
+                                    numString += "https://www.leanplum.com/dashboard?appId=" + str(app['AppId']) + "#/" + str(app['AppId']) + "/messaging/" + str(pushRows['MessageId']) + "\n"
+
+                                    file.write(numString.encode('utf-8'))
+                                    #Since we are in two for loops we break here since we already matched the name we don't need to continue through the loop
+                                    break
+                    file.close()
+                    #Clean up zero records for valid queries
+                    lineCount = 0
+                    p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    result,err = p.communicate()
+                    if p.returncode != 0:
+                        print("\t\tINFO: Error reading end file")
+                    else:
+                        lineCount = int(result.strip().split()[0])
+
+                    if(lineCount == 1):
+                        print("\t\tINFO: Zero Records Returned. Deleting Report")
+                        os.remove(fileName)
+                    else:
+                        print("\t\tSuccess")
+                    file.close()
+                except googleapiclient.errors.HttpError as inst:
+                    print("\t\tWarning: This App had a bad query. Deleting Report. " + str(type(inst)))
+                    file.close()
+                    os.remove(fileName)
+                    pass
+            print("Finished Running Reports")
+                    

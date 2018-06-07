@@ -50,7 +50,14 @@ def runSubject():
         print("Please Enter Values to Run Report")
 
 def runPush():
-    print("TBD")
+    try:
+        print('Running Push Report on Company ID ', E1.get())
+        if( validDate() ):
+            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'p')
+        else:
+            print("Time Range Over 30 Days or Reversed. Cancelling Query")
+    except ValueError:
+        print("Please Enter Values to Run Report")
 
 def runModal():
     print("TBD")
