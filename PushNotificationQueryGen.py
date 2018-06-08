@@ -1,4 +1,4 @@
-#This is where we create and manage the domain line query only
+#This is where we create and manage the push query only
 
 import textwrap
 

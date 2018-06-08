@@ -213,7 +213,7 @@ def runReport(companyId, startDate, endDate, reportType):
             try:
                 fileName = "EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
                 file = open(fileName, "wb")
-                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
+                file.write("Subject,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
                 subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
                 subjectLineJob = bq_client.query(subjectLineQuery)
@@ -274,6 +274,24 @@ def runReport(companyId, startDate, endDate, reportType):
 
                             #print(abResults,flush=True)
                             #print(abUniqueResults,flush=True)
+
+                            #Grab messageId startDate
+                            messageStartDate = ""
+                            ds_client = datastore.Client(project='leanplum')
+                            query = ds_client.query(kind='Study')
+                            key = ds_client.key('Study',int(item['MessageId']))
+                            query.key_filter(key,'=')
+                            qList = list(query.fetch())
+                            ## INFO 
+                                # [0] :: Get the payload from the query (There's only one)
+                                # ['active_since'] :: Payload is a dictionary
+                                # .dat() :: In this case a datetime object is returned
+                            messageStartDate = str(qList[0]['active_since'].date())
+
+                            if(messageStartDate == ""):
+                                print("\t\t\tDataStore has no record of MessageId STUDY:: " + str(item['MessageId']),flush=True )
+                                messageStartDate = "Unknown"
+
                             #Check if this messageId is apart of an AB Test
                             inExperiment = False
                             abDataRows = []
@@ -330,6 +348,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                         uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
                                     numString += "\"" + str(variantSL) + " --Variant " + str(abData['ExperimentVariant']) + "\","
 
+                                    numString += str(messageStartDate) + ","
                                     numString += str(abData['Sent']) + ","
                                     numString += str(abData['Delivered']) + ","
                                     numString += str(delivPct)[:4] + "%,"
@@ -373,6 +392,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                 numString += "\"" + item['Subject'] + "\","
                                 #Removing MessageID as Excel malforms it.
                                 #numString += str(item['MessageId']) + ","
+                                numString += str(messageStartDate) + ","
                                 numString += str(item['Sent']) + ","
                                 numString += str(item['Delivered']) + ","
                                 numString += str(delivPct)[:4] + "%,"
@@ -450,7 +470,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
                     fileName = "EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
                     file = open(fileName, "wb")
-                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,SenderDomain,Domain,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
                     attrLoc = ''
 
@@ -565,12 +585,26 @@ def runReport(companyId, startDate, endDate, reportType):
                                 if(allCategoryDict['MessageId'] == 0):
                                     allCategoryDict['MessageId'] = domainNum['MessageId']
                                 elif(allCategoryDict['MessageId'] != domainNum['MessageId']):
+                                    #Grab messageId startDate
+                                    messageStartDate = ""
+                                    ds_client = datastore.Client(project='leanplum')
+                                    query = ds_client.query(kind='Study')
+                                    key = ds_client.key('Study',int(allCategoryDict['MessageId']))
+                                    query.key_filter(key,'=')
+                                    qList = list(query.fetch())
+                                    ## INFO 
+                                        # [0] :: Get the payload from the query (There's only one)
+                                        # ['active_since'] :: Payload is a dictionary
+                                        # .dat() :: In this case a datetime object is returned
+                                    messageStartDate = str(qList[0]['active_since'].date())                   
+        
                                     #Aggregate
                                     try:
                                         allStr = ''
                                         allStr += allCategoryDict['MessageName'] + ','
                                         allStr += str(allCategoryDict['SenderDomain']) + ','
                                         allStr += str(allCategoryDict['Domain']) + ','
+                                        allStr += str(messageStartDate) + ','
                                         allStr += str(allCategoryDict['Sent']) + ','
                                         allStr += str(allCategoryDict['Delivered']) + ','
                                         allStr += str(float(allCategoryDict['Delivered'])/float(allCategoryDict['Sent'])*100.0)[:4] + '%,'
@@ -609,6 +643,20 @@ def runReport(companyId, startDate, endDate, reportType):
                                 #Removing Message ID as Excel Malforms
                                 #numString += str(domainNum['MessageId']) + ","
                                 numString += str(domainNum['Domain']) + ","
+
+                                #Grab messageId startDate. #### NOT THE MOST IDEAL PLACE FOR THIS BUT OH WELL ####
+                                messageStartDate = ""
+                                ds_client = datastore.Client(project='leanplum')
+                                query = ds_client.query(kind='Study')
+                                key = ds_client.key('Study',int(item['MessageId']))
+                                query.key_filter(key,'=')
+                                qList = list(query.fetch())
+                                ## INFO 
+                                    # [0] :: Get the payload from the query (There's only one)
+                                    # ['active_since'] :: Payload is a dictionary
+                                    # .dat() :: In this case a datetime object is returned
+                                messageStartDate = str(qList[0]['active_since'].date())
+                                numString += str(messageStartDate) + ","
 
                                 numString += str(domainNum['Sent']) + ","
                                 allCategoryDict['Sent'] += domainNum['Sent']
@@ -696,7 +744,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
                     fileName = "PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
                     file = open(fileName, "wb")
-                    file.write("MessageName,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,StartDate,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
 
                     pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
                     pushJob = bq_client.query(pushQuery)
@@ -720,12 +768,26 @@ def runReport(companyId, startDate, endDate, reportType):
                                     break
                                 else:
 
+                                    #Grab messageId startDate
+                                    messageStartDate = ""
+                                    ds_client = datastore.Client(project='leanplum')
+                                    query = ds_client.query(kind='Study')
+                                    key = ds_client.key('Study',int(item['MessageId']))
+                                    query.key_filter(key,'=')
+                                    qList = list(query.fetch())
+                                    ## INFO 
+                                        # [0] :: Get the payload from the query (There's only one)
+                                        # ['active_since'] :: Payload is a dictionary
+                                        # .dat() :: In this case a datetime object is returned
+                                    messageStartDate = str(qList[0]['active_since'].date())
+
+
                                     openPct = float(pushRows['Open'])/float(pushRows['Sent']) * 100.0
-                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent']) * 100.0
 
                                     numString = ""
 
                                     numString += "\"" + str(pushName['Name']) + "\","
+                                    numString += str(messageStartDate) + ","
                                     numString += str(pushRows['Sent']) + ","
                                     numString += str(pushRows['Open']) + ","
                                     numString += str(openPct)[:4] + "%,"
