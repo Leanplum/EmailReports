@@ -265,6 +265,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     variantSLResults = bq_client.get_query_rows(variantSLJob[0])
                     print("\t\t\t" + str(len(variantSLResults)) + " Variant Subject Lines Found", flush=True)
 
+                datastoreCounter = 0
                 #Loop through all the MessageId's that we gathered from the AppId
                 for item in subjectResults:
                     for uni in uniqResults:
@@ -282,6 +283,8 @@ def runReport(companyId, startDate, endDate, reportType):
                             key = ds_client.key('Study',int(item['MessageId']))
                             query.key_filter(key,'=')
                             qList = list(query.fetch())
+                            datastoreCounter += 1
+                            print(datastoreCounter,end="",flush=True)
                             ## INFO 
                                 # [0] :: Get the payload from the query (There's only one)
                                 # ['active_since'] :: Payload is a dictionary
@@ -551,6 +554,8 @@ def runReport(companyId, startDate, endDate, reportType):
                     #Used for All Category -- keep running track of value for messageId
                     allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
 
+                    datastoreCounter = 0
+
                     #Loop through all results and build report
                     for domainNum in domainResults:
                         for domainUni in domainUniResults:
@@ -592,6 +597,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     key = ds_client.key('Study',int(allCategoryDict['MessageId']))
                                     query.key_filter(key,'=')
                                     qList = list(query.fetch())
+                                    datastoreCounter += 1
+                                    print(datastoreCounter,end="",flush=True)
                                     ## INFO 
                                         # [0] :: Get the payload from the query (There's only one)
                                         # ['active_since'] :: Payload is a dictionary
@@ -648,9 +655,11 @@ def runReport(companyId, startDate, endDate, reportType):
                                 messageStartDate = ""
                                 ds_client = datastore.Client(project='leanplum')
                                 query = ds_client.query(kind='Study')
-                                key = ds_client.key('Study',int(item['MessageId']))
+                                key = ds_client.key('Study',int(domainNum['MessageId']))
                                 query.key_filter(key,'=')
                                 qList = list(query.fetch())
+                                datastoreCounter += 1
+                                print(datastoreCounter,end="",flush=True)
                                 ## INFO 
                                     # [0] :: Get the payload from the query (There's only one)
                                     # ['active_since'] :: Payload is a dictionary
@@ -772,7 +781,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                     messageStartDate = ""
                                     ds_client = datastore.Client(project='leanplum')
                                     query = ds_client.query(kind='Study')
-                                    key = ds_client.key('Study',int(item['MessageId']))
+                                    key = ds_client.key('Study',int(pushRows['MessageId']))
                                     query.key_filter(key,'=')
                                     qList = list(query.fetch())
                                     ## INFO 
@@ -783,6 +792,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
 
                                     openPct = float(pushRows['Open'])/float(pushRows['Sent']) * 100.0
+                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent']) * 100.0
 
                                     numString = ""
 
