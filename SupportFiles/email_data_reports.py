@@ -12,8 +12,9 @@ import argparse
 import os
 import re
 import subprocess
-import DomainLineQueryGen as DomainGenerator
-import SubjectLineQueryGen as SubjectGenerator
+from SupportFiles import DomainLineQueryGen as DomainGenerator
+from SupportFiles import SubjectLineQueryGen as SubjectGenerator
+from SupportFiles import PushNotificationQueryGen as PushGenerator
 
 
 #List of domains to breakout
@@ -194,7 +195,8 @@ def runReport(companyId, startDate, endDate, reportType):
     print("\tBackups Loaded")
 
     #Load Subject Report
-    if(reportType == 's'):
+    if(reportType[0] == 's'):
+
         print('\tCreating report by Subject Line')
         appidsQuery = create_appids_query(companyId, endDate)
 
@@ -205,13 +207,16 @@ def runReport(companyId, startDate, endDate, reportType):
 
         #Loop through all App Id's
         for appBundle in appResults:
-            print("\n\tQuerying Data for " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
+            print("\n\tRunning Report on App :: " + appBundle['AppName'] + ":" + str(appBundle['AppId']))
 
             #In case the query fails because of missing data or a test app
             try:
-                fileName = "EmailData_" + str(appBundle['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                fileName = "./Reports/EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                directory = os.path.dirname(fileName)
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
                 file = open(fileName, "wb")
-                file.write("Subject,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
+                file.write("Subject,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
                 subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
                 subjectLineJob = bq_client.query(subjectLineQuery)
@@ -235,46 +240,78 @@ def runReport(companyId, startDate, endDate, reportType):
                     os.remove(fileName)
                     continue
 
-                abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
-                #print(abQuery,flush=True)
-                abJob = bq_client.query(abQuery)
-                print("\t\tRunning AB Query", flush=True)
-                bq_client.wait_for_job(abJob[0],timeout=240)
-                print("\t\tQuery Success", flush=True)
-                abResults = bq_client.get_query_rows(abJob[0])
-                print("\t\t" + str(len(abResults)) + " Variants Found",flush=True)
+                #Check if we are running AB Reports before we spend the cash money
+                if( reportType[1] == "1" ):
+                    print("\t\t----AB Query On----",flush=True)
+                    abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
+                    #print(abQuery,flush=True)
+                    abJob = bq_client.query(abQuery)
+                    print("\t\tRunning AB Query", flush=True)
+                    bq_client.wait_for_job(abJob[0],timeout=240)
+                    print("\t\tQuery Success", flush=True)
+                    abResults = bq_client.get_query_rows(abJob[0])
+                    print("\t\t\t" + str(len(abResults)) + " Variants Found",flush=True)
 
-                abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
-                abUniqueJob = bq_client.query(abUniqueQuery)
-                print("\t\tRunning AB Unique Query", flush=True)
-                bq_client.wait_for_job(abUniqueJob[0],timeout=240)
-                print("\t\tQuery Success", flush=True)
-                abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
-                print("\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
+                    abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
+                    abUniqueJob = bq_client.query(abUniqueQuery)
+                    print("\t\tRunning AB Unique Query", flush=True)
+                    bq_client.wait_for_job(abUniqueJob[0],timeout=240)
+                    print("\t\tQuery Success", flush=True)
+                    abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
+                    print("\t\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
 
+                    variantSLQuery = SubjectGenerator.variant_subject_line_query(startDate, endDate, str(appBundle['AppId']))
+                    variantSLJob = bq_client.query(variantSLQuery)
+                    print("\t\tRunning AB Subject Line Query", flush=True)
+                    bq_client.wait_for_job(variantSLJob[0],timeout=120)
+                    print("\t\tQuery Success",flush=True)
+                    variantSLResults = bq_client.get_query_rows(variantSLJob[0])
+                    print("\t\t\t" + str(len(variantSLResults)) + " Variant Subject Lines Found", flush=True)
+
+                datastoreCounter = 0
                 #Loop through all the MessageId's that we gathered from the AppId
                 for item in subjectResults:
                     for uni in uniqResults:
                         if(uni['MessageId'] == item['MessageId']):
                             if(int(item['Sent'] == 0)):
                                 break
-                            print("Checking Message Id : " + str(item['MessageId']),flush=True)
 
                             #print(abResults,flush=True)
                             #print(abUniqueResults,flush=True)
+
+                            #Grab messageId startDate
+                            messageStartDate = ""
+                            ds_client = datastore.Client(project='leanplum')
+                            query = ds_client.query(kind='Study')
+                            key = ds_client.key('Study',int(item['MessageId']))
+                            query.key_filter(key,'=')
+                            qList = list(query.fetch())
+                            datastoreCounter += 1
+                            print(datastoreCounter,end="",flush=True)
+                            ## INFO 
+                                # [0] :: Get the payload from the query (There's only one)
+                                # ['active_since'] :: Payload is a dictionary
+                                # .dat() :: In this case a datetime object is returned
+                            messageStartDate = str(qList[0]['active_since'].date())
+
+                            if(messageStartDate == ""):
+                                print("\t\t\tDataStore has no record of MessageId STUDY:: " + str(item['MessageId']),flush=True )
+                                messageStartDate = "Unknown"
+
                             #Check if this messageId is apart of an AB Test
                             inExperiment = False
                             abDataRows = []
-                            for abInitialData in abResults:
-                                if( str(item['MessageId']) == str(abInitialData['MessageId'])):
-                                    abDataRows += [abInitialData]
-                                    inExperiment = True
+
+                            #Check if we are running AB reports
+                            if( reportType[1] == "1" ):
+                                for abInitialData in abResults:
+                                    if( str(item['MessageId']) == str(abInitialData['MessageId'])):
+                                        abDataRows += [abInitialData]
+                                        inExperiment = True
 
                             numString = ""
 
                             if(inExperiment):
-                                print("\nAB DATA ROWS\n",flush=True)
-                                print(abDataRows,flush=True)
                                 abUniqueDataRows = []
 
                                 #Grab Unique Rows now that we know we have AB data
@@ -285,7 +322,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                 counter = 1
                                 #Loop through variants
                                 for abData in abDataRows:
-                                    print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
+                                    #print("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
                                     counter += 1
 
                                     delivPct = 0.0
@@ -301,6 +338,12 @@ def runReport(companyId, startDate, endDate, reportType):
                                             uniAb = abUniqueData
                                             break
 
+                                    variantSL = str(item['Subject'])
+                                    for variantSubjectLines in variantSLResults:
+                                        if( (abData['MessageId'] == variantSubjectLines['MessageId']) and (abData['ExperimentVariant'] == variantSubjectLines['ExperimentVariant']) ):
+                                            variantSL = variantSubjectLines['SubjectLine']
+                                            break
+
                                     if(float(abData['Sent']) > 0.0):
                                         delivPct = float(abData['Delivered'])/float(abData['Sent']) * 100.0
                                         bouncePct = float(abData['Bounce'])/float(abData['Sent']) * 100.0
@@ -309,8 +352,9 @@ def runReport(companyId, startDate, endDate, reportType):
                                         spamPct = float(abData['Spam'])/float(abData['Delivered']) * 100.0
                                         uniqueOpenPct = float(uniAb['Unique_Open'])/float(abData['Delivered']) * 100.0
                                         uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
-                                    numString += "\"" + str(item['Subject']) + " --Variant " + str(abData['ExperimentVariant']) + "\","
+                                    numString += "\"" + str(variantSL) + " --Variant " + str(abData['ExperimentVariant']) + "\","
 
+                                    numString += str(messageStartDate) + ","
                                     numString += str(abData['Sent']) + ","
                                     numString += str(abData['Delivered']) + ","
                                     numString += str(delivPct)[:4] + "%,"
@@ -330,7 +374,7 @@ def runReport(companyId, startDate, endDate, reportType):
 
                                     file.write(numString.encode('utf-8'))
                                     numString = ""
-                                    print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
+                                    #print("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
                                 #Finished looping over AB Variants
                                 break
 
@@ -354,6 +398,7 @@ def runReport(companyId, startDate, endDate, reportType):
                                 numString += "\"" + item['Subject'] + "\","
                                 #Removing MessageID as Excel malforms it.
                                 #numString += str(item['MessageId']) + ","
+                                numString += str(messageStartDate) + ","
                                 numString += str(item['Sent']) + ","
                                 numString += str(item['Delivered']) + ","
                                 numString += str(delivPct)[:4] + "%,"
@@ -428,10 +473,13 @@ def runReport(companyId, startDate, endDate, reportType):
 
                 #In case the query fails because of missing data or a test app
                 try:
-                    print("\n\tQuerying Data for " + app['AppName'] + ":" + str(app['AppId']))
-                    fileName = "EmailData_" + str(app['AppName']) + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
+                    fileName = "./Reports/EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    directory = os.path.dirname(fileName)
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
                     file = open(fileName, "wb")
-                    file.write("MessageName,SenderDomain,Domain,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
+                    file.write("MessageName,SenderDomain,Domain,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
                     attrLoc = ''
 
@@ -482,7 +530,6 @@ def runReport(companyId, startDate, endDate, reportType):
                     print('\t\tEmail Name : ' + emailName + ' : at Location : ' + attrLoc)
 
                     domainQuery = DomainGenerator.create_domain_line_query(startDate, endDate, str(app['AppId']), attrLoc)
-                    print(domainQuery)
                     domainJob = bq_client.query(domainQuery)
                     print("\t\tRunning Query for Domain", flush=True)
                     bq_client.wait_for_job(domainJob[0],timeout=120)
@@ -510,8 +557,10 @@ def runReport(companyId, startDate, endDate, reportType):
                     print("\t\tQuery Success", flush=True)
                     defaultEmail = bq_client.get_query_rows(defaultEmailJob[0])[0]['email_from_address']
 
-                    #Used for All Category
+                    #Used for All Category -- keep running track of value for messageId
                     allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','MessageLink':''}
+
+                    datastoreCounter = 0
 
                     #Loop through all results and build report
                     for domainNum in domainResults:
@@ -547,12 +596,28 @@ def runReport(companyId, startDate, endDate, reportType):
                                 if(allCategoryDict['MessageId'] == 0):
                                     allCategoryDict['MessageId'] = domainNum['MessageId']
                                 elif(allCategoryDict['MessageId'] != domainNum['MessageId']):
+                                    #Grab messageId startDate
+                                    messageStartDate = ""
+                                    ds_client = datastore.Client(project='leanplum')
+                                    query = ds_client.query(kind='Study')
+                                    key = ds_client.key('Study',int(allCategoryDict['MessageId']))
+                                    query.key_filter(key,'=')
+                                    qList = list(query.fetch())
+                                    datastoreCounter += 1
+                                    print(datastoreCounter,end="",flush=True)
+                                    ## INFO 
+                                        # [0] :: Get the payload from the query (There's only one)
+                                        # ['active_since'] :: Payload is a dictionary
+                                        # .dat() :: In this case a datetime object is returned
+                                    messageStartDate = str(qList[0]['active_since'].date())                   
+        
                                     #Aggregate
                                     try:
                                         allStr = ''
                                         allStr += allCategoryDict['MessageName'] + ','
                                         allStr += str(allCategoryDict['SenderDomain']) + ','
                                         allStr += str(allCategoryDict['Domain']) + ','
+                                        allStr += str(messageStartDate) + ','
                                         allStr += str(allCategoryDict['Sent']) + ','
                                         allStr += str(allCategoryDict['Delivered']) + ','
                                         allStr += str(float(allCategoryDict['Delivered'])/float(allCategoryDict['Sent'])*100.0)[:4] + '%,'
@@ -591,6 +656,22 @@ def runReport(companyId, startDate, endDate, reportType):
                                 #Removing Message ID as Excel Malforms
                                 #numString += str(domainNum['MessageId']) + ","
                                 numString += str(domainNum['Domain']) + ","
+
+                                #Grab messageId startDate. #### NOT THE MOST IDEAL PLACE FOR THIS BUT OH WELL ####
+                                messageStartDate = ""
+                                ds_client = datastore.Client(project='leanplum')
+                                query = ds_client.query(kind='Study')
+                                key = ds_client.key('Study',int(domainNum['MessageId']))
+                                query.key_filter(key,'=')
+                                qList = list(query.fetch())
+                                datastoreCounter += 1
+                                print(datastoreCounter,end="",flush=True)
+                                ## INFO 
+                                    # [0] :: Get the payload from the query (There's only one)
+                                    # ['active_since'] :: Payload is a dictionary
+                                    # .dat() :: In this case a datetime object is returned
+                                messageStartDate = str(qList[0]['active_since'].date())
+                                numString += str(messageStartDate) + ","
 
                                 numString += str(domainNum['Sent']) + ","
                                 allCategoryDict['Sent'] += domainNum['Sent']
@@ -662,3 +743,102 @@ def runReport(companyId, startDate, endDate, reportType):
                     pass
             #attrFile.close()
             print("Finished Running Reports")
+    #Push Report
+    elif(reportType == 'p'):
+
+            #Lookup App Id's for the company
+            appidsQuery = create_appids_query(companyId, endDate)
+            appJob = bq_client.query(appidsQuery)
+            bq_client.wait_for_job(appJob[0],timeout=120)
+            appResults = bq_client.get_query_rows(appJob[0])
+
+            #Loop through all App's gathered
+            for app in appResults:
+                #In case the query fails because of missing data or a test app
+                try:
+                    print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
+                    fileName = "./Reports/PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
+                    directory = os.path.dirname(fileName)
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
+                    file = open(fileName, "wb")
+                    file.write("MessageName,StartDate,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
+
+                    pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
+                    pushJob = bq_client.query(pushQuery)
+                    print("\t\tRunning Query for Push", flush=True)
+                    bq_client.wait_for_job(pushJob[0],timeout=120)
+                    print("\t\tQuery Success", flush=True)
+                    pushResults = bq_client.get_query_rows(pushJob[0])
+
+                    pushNameQuery = PushGenerator.create_push_message_id_with_name_query(startDate, endDate, str(app['AppId']))
+                    pushNameJob = bq_client.query(pushNameQuery)
+                    print("\t\tRunning Query for Push Names", flush=True)
+                    bq_client.wait_for_job(pushNameJob[0],timeout=120)
+                    print("\t\tQuery Success", flush=True)
+                    pushNameResults = bq_client.get_query_rows(pushNameJob[0])
+
+                    #Loop through results and build report
+                    for pushRows in pushResults:
+                        for pushName in pushNameResults:
+                            if pushRows['MessageId'] == pushName['MessageId']:
+                                if(int(pushRows['Sent']) == 0):
+                                    break
+                                else:
+
+                                    #Grab messageId startDate
+                                    messageStartDate = ""
+                                    ds_client = datastore.Client(project='leanplum')
+                                    query = ds_client.query(kind='Study')
+                                    key = ds_client.key('Study',int(pushRows['MessageId']))
+                                    query.key_filter(key,'=')
+                                    qList = list(query.fetch())
+                                    ## INFO 
+                                        # [0] :: Get the payload from the query (There's only one)
+                                        # ['active_since'] :: Payload is a dictionary
+                                        # .dat() :: In this case a datetime object is returned
+                                    messageStartDate = str(qList[0]['active_since'].date())
+
+
+                                    openPct = float(pushRows['Open'])/float(pushRows['Sent']) * 100.0
+                                    bouncePCT = float(pushRows['Bounce'])/float(pushRows['Sent']) * 100.0
+
+                                    numString = ""
+
+                                    numString += "\"" + str(pushName['Name']) + "\","
+                                    numString += str(messageStartDate) + ","
+                                    numString += str(pushRows['Sent']) + ","
+                                    numString += str(pushRows['Open']) + ","
+                                    numString += str(openPct)[:4] + "%,"
+                                    numString += str(pushRows['Held_Back']) + ","
+                                    numString += str(pushRows['Bounce']) + ","
+                                    numString += str(bouncePCT)[:4] + "%,"
+
+                                    numString += "https://www.leanplum.com/dashboard?appId=" + str(app['AppId']) + "#/" + str(app['AppId']) + "/messaging/" + str(pushRows['MessageId']) + "\n"
+
+                                    file.write(numString.encode('utf-8'))
+                                    #Since we are in two for loops we break here since we already matched the name we don't need to continue through the loop
+                                    break
+                    file.close()
+                    #Clean up zero records for valid queries
+                    lineCount = 0
+                    p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    result,err = p.communicate()
+                    if p.returncode != 0:
+                        print("\t\tINFO: Error reading end file")
+                    else:
+                        lineCount = int(result.strip().split()[0])
+
+                    if(lineCount == 1):
+                        print("\t\tINFO: Zero Records Returned. Deleting Report")
+                        os.remove(fileName)
+                    else:
+                        print("\t\tSuccess")
+                    file.close()
+                except googleapiclient.errors.HttpError as inst:
+                    print("\t\tWarning: This App had a bad query. Deleting Report. " + str(type(inst)))
+                    file.close()
+                    os.remove(fileName)
+                    pass
+            print("Finished Running Reports")
+                    
