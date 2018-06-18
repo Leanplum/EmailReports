@@ -12,9 +12,9 @@ import argparse
 import os
 import re
 import subprocess
-import DomainLineQueryGen as DomainGenerator
-import SubjectLineQueryGen as SubjectGenerator
-import PushNotificationQueryGen as PushGenerator
+from SupportFiles import DomainLineQueryGen as DomainGenerator
+from SupportFiles import SubjectLineQueryGen as SubjectGenerator
+from SupportFiles import PushNotificationQueryGen as PushGenerator
 
 
 #List of domains to breakout
@@ -211,7 +211,10 @@ def runReport(companyId, startDate, endDate, reportType):
 
             #In case the query fails because of missing data or a test app
             try:
-                fileName = "EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                fileName = "./Reports/EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
+                directory = os.path.dirname(fileName)
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
                 file = open(fileName, "wb")
                 file.write("Subject,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,MessageLink\n".encode('utf-8'))
 
@@ -471,7 +474,10 @@ def runReport(companyId, startDate, endDate, reportType):
                 #In case the query fails because of missing data or a test app
                 try:
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
-                    fileName = "EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    fileName = "./Reports/EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
+                    directory = os.path.dirname(fileName)
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
                     file = open(fileName, "wb")
                     file.write("MessageName,SenderDomain,Domain,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Type,MessageLink\n".encode('utf-8'))
 
@@ -751,7 +757,10 @@ def runReport(companyId, startDate, endDate, reportType):
                 #In case the query fails because of missing data or a test app
                 try:
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
-                    fileName = "PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
+                    fileName = "./Reports/PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
+                    directory = os.path.dirname(fileName)
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
                     file = open(fileName, "wb")
                     file.write("MessageName,StartDate,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
 

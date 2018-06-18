@@ -1,6 +1,6 @@
 import tkinter
 from tkinter import *
-import email_data_reports
+from SupportFiles import email_data_reports
 from datetime import datetime
 
 top = tkinter.Tk()
