@@ -58,15 +58,18 @@ WHERE vars.name="Subject" """
 	return query
 
 def create_email_message_id_query(startDate, endDate, appId, level=0):
-	query = """--GRAB MessageId's that are Emails
-SELECT
-	__key__.id as MessageId
-FROM
-	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-		TIMESTAMP('""" + startDate + """'),
-		TIMESTAMP('""" + endDate + """')))
-WHERE (action_type = "__Email" AND app.id = """ + appId + """)
-GROUP BY MessageId"""
+# 	query = """--GRAB MessageId's that are Emails
+# SELECT
+# 	__key__.id as MessageId
+# FROM
+# 	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
+# 		TIMESTAMP('""" + startDate + """'),
+# 		TIMESTAMP('""" + endDate + """')))
+# WHERE (action_type = "__Email" AND app.id = """ + appId + """)
+# GROUP BY MessageId"""
+	query = """--GRAB MessageId's that are Email from Datastore Import
+SELECT *
+FROM [leanplum-staging:email_report_backups.Email_Message_Ids_""" + str(appId) + "]"
 	return query
 
 # A/B Test Grouping

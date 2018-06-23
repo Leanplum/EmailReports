@@ -14,7 +14,7 @@
 #		3> All Email Messages
 import textwrap
 
-Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\")"
+Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\", \"aol.com\")"
 # MAIN REPORT
 def create_domain_line_query(startDate, endDate, appId, attrLoc, level=0):
 	query = """--JOIN MessageInfo with DeliveryType
@@ -48,15 +48,18 @@ def create_unique_domain_query(startDate, endDate, appId, attrLoc, level=0):
 
 # GENERIC HELPERS
 def create_email_message_id_query(startDate, endDate, appId, attrLoc, level=0):
-	query = """--GRAB MessageId's that are Emails
-SELECT
-	__key__.id as MessageId
-FROM
-	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-		TIMESTAMP('""" + startDate + """'),
-		TIMESTAMP('""" + endDate + """')))
-WHERE (action_type = "__Email" AND app.id = """ + appId + """)
-GROUP BY MessageId"""
+# 	query = """--GRAB MessageId's that are Emails
+# SELECT
+# 	__key__.id as MessageId
+# FROM
+# 	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
+# 		TIMESTAMP('""" + startDate + """'),
+# 		TIMESTAMP('""" + endDate + """')))
+# WHERE (action_type = "__Email" AND app.id = """ + appId + """)
+# GROUP BY MessageId"""
+	query = """--GRAB MessageId's that are Email from Datastore Import
+SELECT *
+FROM [leanplum-staging:email_report_backups.Email_Message_Ids_""" + str(appId) + "]"
 	return query
 
 def create_delivery_type_query(startDate, endDate, appId, attrLoc, level=0):

@@ -19,6 +19,8 @@ Start to finish setup to run:
 		rsa==3.4.2
 		six==1.11.0
 		uritemplate==3.0.0
+		gcloud
+		google.cloud
 
 Install from scratch walkthrough. From terminal execute these individually:
 
@@ -29,6 +31,7 @@ gcloud init
 	*Choose leanplum for project and 'n' for compute engine/zone setup
 pip install requirements.txt 
 	*make sure you run this from the directory containing the requirements.txt
+	*on some newer macs, pip is not installed. Try installing `brew install python2` as the package includes pip
 gcloud auth application-default login
 
 2. Ensure proper files exist
