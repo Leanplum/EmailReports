@@ -33,15 +33,18 @@ GROUP BY Name, MessageId"""
 	return query
 
 def create_push_message_id_query(startDate, endDate, appId, level=0):
-	query = """--GRAB MessageId's that are Push Notifications
-SELECT
-	__key__.id as MessageId
-FROM
-	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
-		TIMESTAMP('""" + startDate + """'),
-		TIMESTAMP('""" + endDate + """')))
-WHERE (action_type = "__Push Notification" AND app.id = """ + appId + """)
-GROUP BY MessageId"""
+# 	query = """--GRAB MessageId's that are Push Notifications
+# SELECT
+# 	__key__.id as MessageId
+# FROM
+# 	(TABLE_DATE_RANGE([leanplum-staging:email_report_backups.Study_],
+# 		TIMESTAMP('""" + startDate + """'),
+# 		TIMESTAMP('""" + endDate + """')))
+# WHERE (action_type = "__Push Notification" AND app.id = """ + appId + """)
+# GROUP BY MessageId"""
+	query = """--GRAB MessageId's that are Email from Datastore Import
+SELECT *
+FROM [leanplum-staging:email_report_backups.Push_Message_Ids_""" + str(appId) + "]"
 	return query
 
 #Basic Queries

@@ -12,13 +12,11 @@ import argparse
 import os
 import re
 import subprocess
+import time
+import sys
 from SupportFiles import DomainLineQueryGen as DomainGenerator
 from SupportFiles import SubjectLineQueryGen as SubjectGenerator
 from SupportFiles import PushNotificationQueryGen as PushGenerator
-
-
-#List of domains to breakout
-Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\", \"aol.com\")"
 
 def retrieve_backup_files(service, date, bucket, newConvention):
     """retrieve all datastore backup file names for the date supplied
@@ -118,6 +116,7 @@ def load_table(service, client, date, bucket, dataset, model):
 
             job_id = loading['jobReference']['jobId']
             print("Loading Model : " + model + "_backup - " + date, flush=True)
+            #wait_for_job(loading)
             job = client.wait_for_job(job_id, timeout=120)
             print("Model Loaded : " + model + "_backup - " + date, flush=True)
         #else:
@@ -144,7 +143,7 @@ def remove_table(client, date, dataset):
             if(removing != True):
                 print("Could not delete table :: " + removing,flush=True)
 
-def load_message_ids(client, dataset, appId):
+def load_message_ids(client, dataset, appId,messageType='e'):
 
     appId = int(appId)
 
@@ -153,29 +152,52 @@ def load_message_ids(client, dataset, appId):
     query = ds_client.query(kind='Study')
     key = ds_client.key('App',appId)
     query.add_filter('app','=',key)
-    messageList = list(query.fetch())
-    emailList = []
-    for entity in messageList:
-        if(entity['action_type'] == '__Email'):
-            emailList += [entity.key.id]
+    print("\t\tChecking MessageList for '" + ('email' if messageType == 'e' else 'push') + "'" , flush=True)
+    if(messageType == 'e'):
+        query.add_filter('action_type','=','__Email')
+    elif(messageType == 'p'):
+        query.add_filter('action_type','=','__Push Notification')
 
+    messageList = list(query.fetch())
+    emailList = list(map(lambda entity: entity.key.id, messageList))
+    # for entity in messageList:
+    #     emailList += [entity.key.id]
+
+    print("\t\tMessageId's found : " + str(len(emailList)), flush=True )
     messageIdQuery = create_message_id_list_query(emailList)
 
     #Try and delete if previous exists
-    delete_generic_table(client=client, table="Email_Message_Ids_" + str(appId),dataset=dataset)
-    creation = client.create_table(
-        dataset=dataset,
-        table= "Email_Message_Ids_" + str(appId),
-        schema={"name":"MessageId","type":"integer","mode":"nullable"}
-        )
-    if creation == True:
-        # try:
-        messageIdJob = client.write_to_table(
-            query=messageIdQuery,
+    creation = False
+    if(messageType == 'e'):
+        delete_generic_table(client=client, table="Email_Message_Ids_" + str(appId),dataset=dataset)
+        creation = client.create_table(
             dataset=dataset,
-            table="Email_Message_Ids_" + str(appId),
-            use_legacy_sql=False,
+            table= "Email_Message_Ids_" + str(appId),
+            schema={"name":"MessageId","type":"integer","mode":"nullable"}
             )
+    elif(messageType == 'p'):
+        delete_generic_table(client=client, table="Push_Message_Ids_" + str(appId), dataset=dataset)
+        creation = client.create_table(
+            dataset=dataset,
+            table="Push_Message_Ids_" + str(appId),
+            schema={"name":"MessageId","type":"integer","mode":"nullable"}
+            )
+    if (creation == True) :
+        # try:
+        if(messageType == 'e'):
+            messageIdJob = client.write_to_table(
+                query=messageIdQuery,
+                dataset=dataset,
+                table="Email_Message_Ids_" + str(appId),
+                use_legacy_sql=False,
+                )
+        elif(messageType == 'p'):
+            messageIdJob = client.write_to_table(
+                query=messageIdQuery,
+                dataset=dataset,
+                table="Push_Message_Ids_" + str(appId),
+                use_legacy_sql=False,
+                )
         messageIdResults = client.wait_for_job(messageIdJob)
         # except:
         #     print("Error Saving to Table")
@@ -185,6 +207,30 @@ def load_message_ids(client, dataset, appId):
 def delete_generic_table(client, table, dataset):
     if( client.check_table(dataset=dataset, table=table)):
         client.delete_table(dataset=dataset, table=table)
+
+def wait_for_job(jobId):
+    print('Do nothing',flush=True)
+    # print(jobId)
+    # counter = 0
+    # try:
+    #     while(True):
+    #         if(jobId['status']['state'] == 'RUNNING'):
+    #             if(counter == 0):
+    #                 sys.stdout.write("~")
+    #             elif(counter == 1):
+    #                 sys.stdout.write("*")
+    #             elif(counter == 2):
+    #                 sys.stdout.write("~")
+    #             elif(counter == 3):
+    #                 sys.stdout.write(".")
+    #                 counter = -1
+
+    #             counter += 1
+    #             sys.stdout.flush()
+    #             time.sleep(5)
+    # except TypeError:
+    #     try:
+    #         while()
 
 def create_message_id_list_query(messageIdList):
     query="""
@@ -291,7 +337,7 @@ def runReport(companyId, startDate, endDate, reportType):
         for appBundle in appResults:
             print("\n\tRunning Report on App :: " + appBundle['AppName'] + ":" + str(appBundle['AppId']),flush=True)
 
-            load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(appBundle['AppId']))
+            load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(appBundle['AppId']), messageType = 'e')
 
             ds_client = datastore.Client(project='leanplum')
             try:
@@ -319,14 +365,18 @@ def runReport(companyId, startDate, endDate, reportType):
                 subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
                 print("\t\tRunning Query", flush=True)
                 subjectLineJob = bq_client.query(subjectLineQuery)
-                bq_client.wait_for_job(subjectLineJob[0],timeout=120)
+                #bq_client.wait_for_job(subjectLineJob[0],timeout=120)
+                while(not bq_client.check_job(defaultEmailJob[0])[0]):
+                    time.sleep(5)
                 print("\t\tQuery Success", flush=True)
                 subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
                 uniqLineQuery = SubjectGenerator.create_unique_line_query(startDate, endDate, str(appBundle['AppId']))
                 print("\t\tRunning Query for Uniques", flush=True)
                 uniqLineJob = bq_client.query(uniqLineQuery)
-                bq_client.wait_for_job(uniqLineJob[0],timeout=120)
+                #bq_client.wait_for_job(uniqLineJob[0],timeout=120)
+                while(not bq_client.check_job(defaultEmailJob[0])[0]):
+                    time.sleep(5)
                 print("\t\tQuery Success", flush=True)
                 uniqResults = bq_client.get_query_rows(uniqLineJob[0])
 
@@ -343,7 +393,9 @@ def runReport(companyId, startDate, endDate, reportType):
                     abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
                     print("\t\tRunning AB Query", flush=True)
                     abJob = bq_client.query(abQuery)
-                    bq_client.wait_for_job(abJob[0],timeout=240)
+                    #bq_client.wait_for_job(abJob[0],timeout=240)
+                    while(not bq_client.check_job(abJob[0])[0]):
+                        time.sleep(5)
                     print("\t\tQuery Success", flush=True)
                     abResults = bq_client.get_query_rows(abJob[0])
                     print("\t\t\t" + str(len(abResults)) + " Variants Found",flush=True)
@@ -351,7 +403,9 @@ def runReport(companyId, startDate, endDate, reportType):
                     abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
                     print("\t\tRunning AB Unique Query", flush=True)
                     abUniqueJob = bq_client.query(abUniqueQuery)
-                    bq_client.wait_for_job(abUniqueJob[0],timeout=240)
+                    #bq_client.wait_for_job(abUniqueJob[0],timeout=1500)
+                    while(not bq_client.check_job(abUniqueJob[0])[0]):
+                        time.sleep(5)
                     print("\t\tQuery Success", flush=True)
                     abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
                     print("\t\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",flush=True)
@@ -359,7 +413,9 @@ def runReport(companyId, startDate, endDate, reportType):
                     variantSLQuery = SubjectGenerator.variant_subject_line_query(startDate, endDate, str(appBundle['AppId']))
                     print("\t\tRunning AB Subject Line Query", flush=True)
                     variantSLJob = bq_client.query(variantSLQuery)
-                    bq_client.wait_for_job(variantSLJob[0],timeout=120)
+                    #bq_client.wait_for_job(variantSLJob[0],timeout=120)
+                    while(not bq_client.check_job(variantSLJob[0])[0]):
+                        time.sleep(5)
                     print("\t\tQuery Success",flush=True)
                     variantSLResults = bq_client.get_query_rows(variantSLJob[0])
                     print("\t\t\t" + str(len(variantSLResults)) + " Variant Subject Lines Found", flush=True)
@@ -557,13 +613,13 @@ def runReport(companyId, startDate, endDate, reportType):
                 os.remove(fileName)
                 pass
             print("\t\tCleaning up dataset . . ",end="",flush=True)
-            #delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(appBundle['AppId']), dataset='email_report_backups')
+            delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(appBundle['AppId']), dataset='email_report_backups')
             print("Clean",flush=True)
 
         print("Finished Running Reports")
     #Domain Report
     elif(reportType == 'd'):
-            print('\tCreating report by Domain against : ' + Domains,flush=True)
+            print('\tCreating report by Domain',flush=True)
 
             # attrFileName = "AppID_Attr.txt"
 
@@ -659,14 +715,18 @@ def runReport(companyId, startDate, endDate, reportType):
                     domainQuery = DomainGenerator.create_domain_line_query(startDate, endDate, str(app['AppId']), attrLoc)
                     print("\t\tRunning Query for Domain", flush=True)
                     domainJob = bq_client.query(domainQuery)
-                    bq_client.wait_for_job(domainJob[0],timeout=120)
+                    #bq_client.wait_for_job(domainJob[0],timeout=120)
+                    while(not bq_client.check_job(domainJob[0])[0]):
+                        time.sleep(5)
                     print("\t\tQuery Success", flush=True)
                     domainResults = bq_client.get_query_rows(domainJob[0])
 
                     domainUniqueQuery = DomainGenerator.create_unique_domain_query(startDate, endDate, str(app['AppId']), attrLoc)
                     print("\t\tRunning Query for Uniques", flush=True)
                     domainUniJob = bq_client.query(domainUniqueQuery)
-                    bq_client.wait_for_job(domainUniJob[0],timeout=120)
+                    #bq_client.wait_for_job(domainUniJob[0],timeout=120)
+                    while(not bq_client.check_job(domainUniJob[0])[0]):
+                        time.sleep(5)
                     print("\t\tQuery Success", flush=True)
                     domainUniResults = bq_client.get_query_rows(domainUniJob[0])
 
@@ -687,6 +747,8 @@ def runReport(companyId, startDate, endDate, reportType):
                     #Used for All Category -- keep running track of value for messageId
                     allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'','Category':'Default','MessageLink':''}
 
+                    currentId = 0
+                    on = False
                     #Loop through all results and build report
                     for domainNum in domainResults:
                         for domainUni in domainUniResults:
@@ -697,10 +759,21 @@ def runReport(companyId, startDate, endDate, reportType):
                                     elif(int(domainNum['ID']) != 1):
                                         print("\t\tINFO: Skipping Duplicate Message Row :: " + str(domainNum['MessageId']) + " :: due to multiple ID's availble. --> ID's == " + str(domainNum['ID']),flush=True)
                                     break
+                                if( currentId != int(domainNum['MessageId'])):
+                                    #suppress
+                                    #print("Running -- " + str(domainNum['MessageId']) + "...",end=" ",flush=True)
+                                    on = True
+                                else:
+                                    on= False
+
+                                #supress
+                                on = False
 
                                 numString = ""
                                 senderEmail = ""
 
+                                if on:
+                                    print("\t1",end = " ",flush=True)
                                 #Look for the sender email
                                 for senderDict in senderEmailResults:
                                     if str(senderDict['MessageId']) == str(domainNum['MessageId']):
@@ -714,6 +787,9 @@ def runReport(companyId, startDate, endDate, reportType):
                                 uniqueClickPct = 0.0
                                 spamPct = 0.0
 
+                                if on:
+                                    print("2",end = " ",flush=True)
+
                                 if(float(domainNum['Sent']) > 0.0):
                                     delivPct = float(domainNum['Delivered'])/float(domainNum['Sent']) * 100.0
                                     bouncePct = float(domainNum['Bounce'])/float(domainNum['Sent']) * 100.0
@@ -722,6 +798,9 @@ def runReport(companyId, startDate, endDate, reportType):
                                     spamPct = float(domainNum['Spam'])/float(domainNum['Delivered']) * 100.0
                                     uniqueOpenPct = float(domainUni['Unique_Open'])/float(domainNum['Delivered']) * 100.0
                                     uniqueClickPct = float(domainUni['Unique_Click'])/float(domainNum['Delivered']) * 100.0
+
+                                if on:
+                                    print("3",end = " ",flush=True)
 
                                 if(allCategoryDict['MessageId'] == 0):
                                     allCategoryDict['MessageId'] = domainNum['MessageId']
@@ -735,6 +814,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     key = ds_client.key('Study',int(allCategoryDict['MessageId']))
                                     query.key_filter(key,'=')
                                     qList = list(query.fetch())
+                                    if on:
+                                        print("4",end = " ",flush=True)
                                     ## INFO 
                                         # [0] :: Get the payload from the query (There's only one)
                                         # ['active_since'] :: Payload is a dictionary
@@ -743,28 +824,35 @@ def runReport(companyId, startDate, endDate, reportType):
                                         if( str(qList[0]['action_type']) != "__Email" ):
                                             print("\t\tWarning: Captured wrong message :: " + str(domainNum['MessageId']) + " :: Type = " + str(qList[0]['action_type']), flush=True)
                                             break
+                                        if on:
+                                            print("4a",end = " ",flush=True)
                                         messageStartDate = str(qList[0]['active_since'].date())
                                         try:
+                                            if on:
+                                                print("4b",end = " ",flush=True)
                                             categoryId = int(qList[0]['category_id'])
                                             for categoryDict in categoryList:
                                                 if(categoryId == int(categoryDict['id'])):
                                                     categoryName = str(categoryDict['name'])
                                                     allCategoryDict['Category'] = categoryName
-                                            break
                                         except TypeError:
                                             #message is in the default category
+
                                             pass
                                     except IndexError:
                                         pass
                                     except AttributeError:
                                         pass
-
+                                    if on:
+                                        print("5",end = " ",flush=True)
                                     if(messageStartDate == ""):
                                         print("\t\t\tDataStore has no record of MessageId STUDY:: " + str(domainNum['MessageId']),flush=True )
                                         messageStartDate = "Unknown"                 
         
                                     #Aggregate
                                     try:
+                                        if on:
+                                            print("6",end = " ",flush=True)
                                         allStr = ''
                                         allStr += allCategoryDict['MessageName'] + ','
                                         allStr += str(allCategoryDict['SenderDomain']) + ','
@@ -788,7 +876,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                         allStr += str(allCategoryDict['Type']) + ','
                                         allStr += str(allCategoryDict['Category']) + ','
                                         allStr += ' \n'
-
+                                        if on:
+                                            print("7",end = " ",flush=True)
                                         #Don't Write If Nothing There
                                         if(allCategoryDict['Sent'] != 0):
                                             file.write(allStr.encode('utf-8'))
@@ -800,7 +889,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     #Zero out and Update
                                     allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'', 'Category':'Default','MessageLink':''}
                                     allCategoryDict['MessageId'] = domainNum['MessageId']
-
+                                if on:
+                                    print("8",end = " ",flush=True)
                                 numString += "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\","
                                 allCategoryDict['MessageName'] = "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\""
 
@@ -812,7 +902,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                 #Removing Message ID as Excel Malforms
                                 #numString += str(domainNum['MessageId']) + ","
                                 numString += str(domainNum['Domain']) + ","
-
+                                if on:
+                                    print("9",end = " ",flush=True)
                                 #Grab messageId startDate. #### NOT THE MOST IDEAL PLACE FOR THIS BUT OH WELL ####
                                 messageStartDate = ""
                                 categoryId = -1
@@ -822,6 +913,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                 key = ds_client.key('Study',int(domainNum['MessageId']))
                                 query.key_filter(key,'=')
                                 qList = list(query.fetch())
+                                if on:
+                                    print("10",end = " ",flush=True)
                                 ## INFO 
                                     # [0] :: Get the payload from the query (There's only one)
                                     # ['active_since'] :: Payload is a dictionary
@@ -844,7 +937,8 @@ def runReport(companyId, startDate, endDate, reportType):
                                     pass
                                 except AttributeError:
                                     pass
-
+                                if on:
+                                    print("11",end = " ",flush=True)
                                 if(messageStartDate == ""):
                                     print("\t\t\tDataStore has no record of MessageId STUDY:: " + str(domainNum['MessageId']),flush=True )
                                     messageStartDate = "Unknown"
@@ -896,7 +990,9 @@ def runReport(companyId, startDate, endDate, reportType):
                                 numString += str(categoryName) + ","
 
                                 numString += "https://www.leanplum.com/dashboard?appId=" +  str(app['AppId']) + "#/" + str(app['AppId']) + "/messaging/" + str(domainNum['MessageId']) + "\n"
-
+                                if(on):
+                                    print("12",flush=True)
+                                    print("\t" + numString,flush=True)
                                 file.write(numString.encode('utf-8'))
                                 break
 
@@ -923,7 +1019,7 @@ def runReport(companyId, startDate, endDate, reportType):
                     pass
 
                 print("\t\tCleaning up dataset . . ",end="",flush=True)
-                delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
+                # delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
                 print("Clean",flush=True)
 
             #attrFile.close()
@@ -934,20 +1030,29 @@ def runReport(companyId, startDate, endDate, reportType):
             #Lookup App Id's for the company
             appidsQuery = create_appids_query(companyId, endDate)
             appJob = bq_client.query(appidsQuery)
-            bq_client.wait_for_job(appJob[0],timeout=120)
+            #bq_client.wait_for_job(appJob[0],timeout=120)
+            print(bq_client.check_job(appJob[0]),flush=True)
+            tp = bq_client.check_job(appJob[0])
+            print(tp,flush=True)
+            print(tp[0],flush=True)
+            while(not bq_client.check_job(appJob[0])[0]):
+                time.sleep(5)
+                print("Sleep",flush=True)
             appResults = bq_client.get_query_rows(appJob[0])
-
             #Loop through all App's gathered
             for app in appResults:
                 #In case the query fails because of missing data or a test app
                 try:
                     print("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']))
+
                     fileName = "./Reports/PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
                     directory = os.path.dirname(fileName)
                     if not os.path.exists(directory):
                         os.makedirs(directory)
                     file = open(fileName, "wb")
                     file.write("MessageName,StartDate,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
+
+                    load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(app['AppId']),messageType='p')
 
                     pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
                     pushJob = bq_client.query(pushQuery)
@@ -1042,5 +1147,9 @@ def runReport(companyId, startDate, endDate, reportType):
                     file.close()
                     os.remove(fileName)
                     pass
+                print("\t\tCleaning up dataset . . ",end="",flush=True)
+                delete_generic_table(client=bq_client, table="Push_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
+                print("Clean",flush=True)
+
             print("Finished Running Reports")
                     

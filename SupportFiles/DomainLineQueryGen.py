@@ -14,7 +14,7 @@
 #		3> All Email Messages
 import textwrap
 
-Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\", \"yahoo.com\", \"aol.com\")"
+Domains = "(\"gmail.com\",\"msn.com\",\"hotmail.com\",\"yahoo.com\",\"aol.com\",\"163.com\",\"etlgr.com\", \"gmail.com\", \"hotmail.co.th\", \"icloud.com\", \"live.com\", \"me.com\", \"naver.com\", \"outlook.com\", \"qq.com\", \"rocketmail.com\", \"yahoo.co.id\", \"yahoo.co.uk\", \"yahoo.com\", \"yahoo.com.my\", \"yahoo.com.ph\", \"yahoo.com.sg\", \"yahoo.com.vn\", \"ymail.com\")"
 # MAIN REPORT
 def create_domain_line_query(startDate, endDate, appId, attrLoc, level=0):
 	query = """--JOIN MessageInfo with DeliveryType
