@@ -25,13 +25,14 @@ def wait_for_job(bq_client, query, job, timeOuts,Writer):
 
 	ds_client = datastore.Client(project='leanplum')
 
-	if(timeOuts):
+	if(timeOuts == 1):
 		bq_client.wait_for_job(job[0],timeout=240)
 	else:
 		while(not bq_client.check_job(job[0])[0]):
 			time.sleep(5)
 
 def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,Writer):
+
 	Writer.send('\tCreating report by Subject Line',WriterType.INFO)
 
 	ds_client = datastore.Client(project='leanplum')

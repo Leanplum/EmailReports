@@ -25,7 +25,7 @@ def wait_for_job(bq_client, query, job, timeOuts, Writer):
 
 	ds_client = datastore.Client(project='leanplum')
 
-	if(timeOuts):
+	if(timeOuts == 1):
 		bq_client.wait_for_job(job[0],timeout=240)
 	else:
 		while(not bq_client.check_job(job[0])[0]):

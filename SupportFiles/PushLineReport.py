@@ -27,7 +27,7 @@ def wait_for_job(bq_client, query, job, timeOuts,Writer):
 
 	ds_client = datastore.Client(project='leanplum')
 	
-	if(timeOuts):
+	if(timeOuts == 1):
 		bq_client.wait_for_job(job[0],timeout=240)
 	else:
 		while(not bq_client.check_job(job[0])[0]):
@@ -158,7 +158,7 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 							#Since we are in two for loops we break here since we already matched the name we don't need to continue through the loop
 							break
 			file.close()
-			#Clean up zero records for valid queries. This usually happens when Unique results don't match with regular results
+			#Clean up zero records for valid queries. This usually happens when Unique results don't match with regular resultss
 			lineCount = 0
 			p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 			result,err = p.communicate()

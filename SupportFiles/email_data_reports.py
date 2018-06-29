@@ -36,7 +36,7 @@ def runReport(reportId, startDate, endDate, reportType,timeOuts=0,debug=0):
 
     Writer = ReportWriter.Writer()
     updateWriter(Writer,debug)
-
+    
     # initialize google and bq clients
     google_credential = GoogleCredentials.get_application_default()
     google_service = googleapiclient.discovery.build('storage', 'v1', credentials=google_credential)

@@ -103,7 +103,7 @@ Checkbutton(top, text="TimeOuts ON/Off", variable=timeOutVal).grid(row=9,column=
 debugValDebug = IntVar()
 debugValInfo = IntVar()
 
-Checkbutton(top, text="Log Info", variable=debugValDebug).grid(row=10,column=0)
-Checkbutton(top, text="Debug Info", variable=debugValInfo).grid(row=10,column=1)
+Checkbutton(top, text="Log Info", variable=debugValInfo).grid(row=10,column=0)
+Checkbutton(top, text="Debug Info", variable=debugValDebug).grid(row=10,column=1)
 
 top.mainloop()
