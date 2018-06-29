@@ -5,7 +5,12 @@ from datetime import datetime
 
 top = tkinter.Tk()
 
-Label(top, text='Company Id').grid(row=0, column=0)
+#Label(top, text='Company Id').grid(row=0, column=0)
+choices = {'Company Id', 'App Id'}
+dropDownVar = StringVar()
+dropDownVar.set('Company Id')
+OptionMenu(top,variable=dropDownVar,*choices).grid(row=0,column=0)
+
 E1 = Entry(top, bd = 5)
 E1.grid(row=0, column=1)
 
@@ -38,7 +43,7 @@ def runDomain():
     try:
         print('Running Domain Report on Company ID ', E1.get())
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'d')
+            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'d', str(timeOutVal.get()), (debugValDebug * 2) + debugValInfo)
     except ValueError:
         print("Please Enter Values to Run Report")
     
@@ -46,7 +51,7 @@ def runSubject():
     try:
         print('Running Subject Report on Company ID ', E1.get())
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),"s" + str(checkVal.get()))
+            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),"s" + str(abVal.get()), str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
     except ValueError:
         print("Please Enter Values to Run Report")
 
@@ -54,22 +59,36 @@ def runPush():
     try:
         print('Running Push Report on Company ID ', E1.get())
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'p')
+            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'p', str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
     except ValueError:
         print("Please Enter Values to Run Report")
 
 def deleteTables():
-    email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'delete')
+    email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'delete', str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
     
 Button(top, text='Start Subject Report', command=runSubject).grid(row=3,column=0)           
 Button(top, text='Start Domain Report', command=runDomain).grid(row=4,column=0)
 
-checkVal = IntVar()
-Checkbutton(top, text="AB ON/OFF", variable=checkVal).grid(row=3,column=1) 
+abVal = IntVar()
+Checkbutton(top, text="AB ON/OFF", variable=abVal).grid(row=3,column=1) 
 
 Frame(top,bg="black").grid(row=5,columnspan=2,stick=E+W)
 
 Button(top, text='Start Push Report', command=runPush).grid(row=6,column=0)
-Button(top, text='Delete Tables', command=deleteTables).grid(row=6,column=1)
+
+Frame(top,bg="black").grid(row=7,columnspan=2,stick=E+W)
+
+Label(top, text="Settings:").grid(row=8,column=0)
+
+Button(top, text='Delete Tables', command=deleteTables).grid(row=9,column=0)
+
+timeOutVal = IntVar()
+Checkbutton(top, text="TimeOuts ON/Off", variable=timeOutVal).grid(row=9,column=1)
+
+debugValDebug = IntVar()
+debugValInfo = IntVar()
+
+Checkbutton(top, text="Log Info", variable=debugValDebug).grid(row=10,column=0)
+Checkbutton(top, text="Debug Info", variable=debugValInfo).grid(row=10,column=1)
 
 top.mainloop()
