@@ -23,30 +23,19 @@ from SupportFiles import DomainLineReport as DomainReport
 from SupportFiles import PushLineReport as PushReport
 from SupportFiles import ReportWriter
 
-Writer = ReportWriter.Writer()
+WriterType = ReportWriter.WriterType
 
-def updateWriter(debug):
+def updateWriter(Writer,debug):
     Writer.info = (debug & 1)
     Writer.debug = (debug & 2)
     Writer.querywriter = (debug & 4)
 
 def runReport(reportId, startDate, endDate, reportType,timeOuts=0,debug=0):
 
-    # #Parse command line inputs
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--project', '-p', help='project id', default='leanplum-staging')
-    # parser.add_argument('--dataset', '-d',  help='dataset that stores the tables', default="email_report_backups")
-    # parser.add_argument('--model', '-m', help='datastore model(s) to load', nargs='+', default=['App','Study','Experiment'])
-    # #We do not catch bad date format
-    # parser.add_argument('--dateS', '-ts', help='start date YYYYMMDD', required=True)
-    # parser.add_argument('--dateE', '-te', help='end date YYYYMMDD', required=True)
-    # parser.add_argument('--bucket', '-b', help='google storage bucket name', default='leanplum_backups')
-    # parser.add_argument('--company', '-c', help='company id', required=True)
-    # parser.add_argument('--report', '-r', help='report type (s)ubject/(d)domain', required=True)
-    # args = parser.parse_args()
-
     # Update Writer
-    updateWriter(debug)
+
+    Writer = ReportWriter.Writer()
+    updateWriter(Writer,debug)
 
     # initialize google and bq clients
     google_credential = GoogleCredentials.get_application_default()
@@ -81,10 +70,10 @@ def runReport(reportId, startDate, endDate, reportType,timeOuts=0,debug=0):
 
     #Subject Report
     if(reportType[0] == 's'):
-        SubjectReport.runSubjectReport(bq_client,reportId, startDate,endDate,timeOuts)
+        SubjectReport.runSubjectReport(bq_client,reportId,reportType,startDate,endDate,timeOuts,Writer)
     #Domain Report
     elif(reportType == 'd'):
-        DomainReport.runDomainReport(bq_client,reportId,startDate,endDate,timeOuts)
+        DomainReport.runDomainReport(bq_client,reportId,startDate,endDate,timeOuts,Writer)
     #Push Report
     elif(reportType == 'p'):
-        PushReport.runPushReport(bq_client,reportId,startDate,endDate,timeOuts)
+        PushReport.runPushReport(bq_client,reportId,startDate,endDate,timeOuts,Writer)

@@ -18,16 +18,46 @@ from SupportFiles import SubjectLineReport as SubjectReport
 from SupportFiles import DomainLineReport as DomainReport
 from SupportFiles import ReportWriter
 
-def runPushReport(bq_client,companyId, startDate, endDate,timeOuts):
-	#Lookup App Id's for the company
-	appidsQuery = ReportMethods.create_appids_query(companyId, endDate)
-	appJob = bq_client.query(appidsQuery)
+#Real strong use of dem' globals yo *sigh
+WriterType = ReportWriter.WriterType
+
+#When a query is executed this method will either use the standard timeout or wait indefinately tell a success response
+def wait_for_job(bq_client, query, job, timeOuts,Writer):
+	Writer.send(query,WriterType.QUERYWRITER)
+
+	ds_client = datastore.Client(project='leanplum')
+	
 	if(timeOuts):
-		bq_client.wait_for_job(appJob[0],timeout=120)
+		bq_client.wait_for_job(job[0],timeout=240)
 	else:
-		while(not bq_client.check_job(appJob[0])[0]):
+		while(not bq_client.check_job(job[0])[0]):
 			time.sleep(5)
-	appResults = bq_client.get_query_rows(appJob[0])
+
+def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
+	Writer.send("\tCreating Report for Push Notifications",WriterType.INFO)
+
+	ds_client = datastore.Client(project='leanplum')
+
+	appResults = []
+
+	if(reportId[0:3] == '__A'):
+		appNameQuery = ds_client.query(kind='App')
+		appKey = ds_client.key('App',int(reportId[3:]))
+		appNameQuery.key_filter(appKey,'=')
+		appList = list(appNameQuery.fetch())
+		try:
+			appName = appList[0]['name']
+		except KeyError:
+			Writer.send("\tWarning: No App Entity for AppId",WriterType.DEBUG)
+			return
+		appResults = [{'AppName':str(appName),'AppId':str(reportId[3:])}]
+	else:
+		#Lookup App Id's for the company
+		appidsQuery = ReportMethods.create_appids_query(reportId, endDate)
+		appJob = bq_client.query(appidsQuery)
+		wait_for_job(bq_client, appidsQuery, appJob, timeOuts)
+		appResults = bq_client.get_query_rows(appJob[0])
+
 	#Loop through all App's gathered
 	for app in appResults:
 		#In case the query fails because of missing data or a test app
@@ -44,26 +74,16 @@ def runPushReport(bq_client,companyId, startDate, endDate,timeOuts):
 			ReportMethods.load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(app['AppId']),messageType='p')
 
 			pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
-			Writer.send(pushQuery,WriterType.QUERYWRITER)
 			pushJob = bq_client.query(pushQuery)
 			Writer.send("\t\tRunning Query for Push", WriterType.INFO)
-			if(timeOuts):
-				bq_client.wait_for_job(pushJob[0],timeout=120)
-			else:
-				while(not bq_client.check_job(pushJob[0])[0]):
-					time.sleep(5)
+			wait_for_job(bq_client, pushQuery, pushJob, timeOuts, Writer)
 			Writer.send("\t\tQuery Success", WriterType.INFO)
 			pushResults = bq_client.get_query_rows(pushJob[0])
 
 			pushNameQuery = PushGenerator.create_push_message_id_with_name_query(startDate, endDate, str(app['AppId']))
-			Writer.send(pushNameQuery,WriterType.QUERYWRITER)
 			pushNameJob = bq_client.query(pushNameQuery)
 			Writer.send("\t\tRunning Query for Push Names", WriterType.INFO)
-			if(timeOuts):
-				bq_client.wait_for_job(pushNameJob[0],timeout=120)
-			else:
-				while(not bq_client.check_job(pushNameJob[0])[0]):
-					time.sleep(5)
+			wait_for_job(bq_client, pushNameQuery, pushNameJob, timeOuts, Writer)
 			Writer.send("\t\tQuery Success", WriterType.INFO)
 			pushNameResults = bq_client.get_query_rows(pushNameJob[0])
 
@@ -146,7 +166,7 @@ def runPushReport(bq_client,companyId, startDate, endDate,timeOuts):
 			file.close()
 			os.remove(fileName)
 			pass
-		Writer.send("\t\tCleaning up dataset . . ",ending="",WriterType.INFO)
+		Writer.send("\t\tCleaning up dataset . . ",WriterType.INFO,ending="")
 		ReportMethods.delete_generic_table(client=bq_client, table="Push_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
 		Writer.send("Clean",WriterType.INFO)
 

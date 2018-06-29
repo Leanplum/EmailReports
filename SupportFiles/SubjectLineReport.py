@@ -14,19 +14,46 @@ from SupportFiles import DomainLineQueryGen as DomainGenerator
 from SupportFiles import SubjectLineQueryGen as SubjectGenerator
 from SupportFiles import PushNotificationQueryGen as PushGenerator
 from SupportFiles import ReportMethods
+from SupportFiles import ReportWriter
 
-def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
-	Writer.send('\tCreating report by Subject Line',WriterType.INFO)
-	appidsQuery = ReportMethods.create_appids_query(companyId, endDate)
+#Real strong use of dem' globals yo *sigh
+WriterType = ReportWriter.WriterType
 
-	#Create query for App Id's
-	appJob = bq_client.query(appidsQuery)
+def wait_for_job(bq_client, query, job, timeOuts,Writer):
+	Writer.send(query,WriterType.QUERYWRITER)
+
+	ds_client = datastore.Client(project='leanplum')
+
 	if(timeOuts):
-		bq_client.wait_for_job(appJob[0],timeout=120)
+		bq_client.wait_for_job(job[0],timeout=240)
 	else:
-		while(not bq_client.check_job(appJob[0])[0]):
+		while(not bq_client.check_job(job[0])[0]):
 			time.sleep(5)
-	appResults = bq_client.get_query_rows(appJob[0])
+
+def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,Writer):
+	Writer.send('\tCreating report by Subject Line',WriterType.INFO)
+
+	ds_client = datastore.Client(project='leanplum')
+
+	appResults = []
+
+	if(reportId[0:3] == '__A'):
+		appNameQuery = ds_client.query(kind='App')
+		appKey = ds_client.key('App',int(reportId[3:]))
+		appNameQuery.key_filter(appKey,'=')
+		appList = list(appNameQuery.fetch())
+		try:
+			appName = appList[0]['name']
+		except KeyError:
+			Writer.send("\tWarning: No App Entity for AppId",WriterType.DEBUG)
+			return
+		appResults = [{'AppName':str(appName),'AppId':str(reportId[3:])}]
+	else:
+		#Create App Id's Query
+		appidsQuery = ReportMethods.create_appids_query(reportId, endDate)
+		appJob = bq_client.query(appidsQuery)
+		wait_for_job(bq_client, appidsQuery, appJob, timeOuts, Writer)
+		appResults = bq_client.get_query_rows(appJob[0])
 
 	#Loop through all App Id's
 	for appBundle in appResults:
@@ -57,78 +84,58 @@ def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
 			file = open(fileName, "wb")
 			file.write("Subject,StartDate,Sent,Delivered,Delivered_PCT,Open,Open_PCT,Unique_Open,Unique_Open_PCT,Unique_Click,Unique_Click_PCT,Bounce,Bounce_PCT,Dropped,Unsubscribe,Spam,Spam_PCT,Category,MessageLink\n".encode('utf-8'))
 
+			###### QUERY BLOCK
 			subjectLineQuery = SubjectGenerator.create_subject_line_query(startDate, endDate, str(appBundle['AppId']))
-			Writer.send(subjectLineQuery,WriterType.QUERYWRITER)
 			Writer.send("\t\tRunning Query", WriterType.INFO)
 			subjectLineJob = bq_client.query(subjectLineQuery)
-			if(timeOuts):
-				bq_client.wait_for_job(subjectLineJob[0],timeout=120)
-			else:
-				while(not bq_client.check_job(subjectLineJob[0])[0]):
-					time.sleep(5)
+			wait_for_job(bq_client, subjectLineQuery, subjectLineJob, timeOuts, Writer)
 			Writer.send("\t\tQuery Success", WriterType.INFO)
 			subjectResults = bq_client.get_query_rows(subjectLineJob[0])
 
 			uniqLineQuery = SubjectGenerator.create_unique_line_query(startDate, endDate, str(appBundle['AppId']))
-			Writer.send(uniqLineQuery,WriterType.QUERYWRITER)
 			Writer.send("\t\tRunning Query for Uniques", WriterType.INFO)
 			uniqLineJob = bq_client.query(uniqLineQuery)
-			if(timeOuts):
-				bq_client.wait_for_job(uniqLineJob[0],timeout=120)
-			else:
-				while(not bq_client.check_job(uniqLineJob[0])[0]):
-					time.sleep(5)
+			wait_for_job(bq_client, uniqLineQuery, uniqLineJob, timeOuts, Writer)
 			Writer.send("\t\tQuery Success", WriterType.INFO)
 			uniqResults = bq_client.get_query_rows(uniqLineJob[0])
+			###### QUERY BLOCK
 
 			#There is a difference between a bad table and a zero table. We catch that here.
 			if(not subjectResults):
-				Writer.send("\t\tINFO: Zero Records Returned")
+				Writer.send("\t\tINFO: Zero Records Returned", WriterType.INFO)
 				file.close()
 				os.remove(fileName)
 				continue
 
 			#Check if we are running AB Reports before we spend the cash money
 			if( reportType[1] == "1" ):
+
+				###### QUERY BLOCK
 				Writer.send("\t\t----AB Query On----",WriterType.INFO)
 				abQuery = SubjectGenerator.create_ab_query(startDate, endDate, str(appBundle['AppId']))
-				Writer.send(abQuery,WriterType.QUERYWRITER)
 				Writer.send("\t\tRunning AB Query", WriterType.INFO)
 				abJob = bq_client.query(abQuery)
-				if(timeOuts):
-					bq_client.wait_for_job(abJob[0],timeout=240)
-				else:
-					while(not bq_client.check_job(abJob[0])[0]):
-						time.sleep(5)
+				wait_for_job(bq_client, abQuery, abJob, timeOuts, Writer)
 				Writer.send("\t\tQuery Success", WriterType.INFO)
 				abResults = bq_client.get_query_rows(abJob[0])
-				Writer.send("\t\t\t" + str(len(abResults)) + " Variants Found",flush=True)
+				Writer.send("\t\t\t" + str(len(abResults)) + " Variants Found",WriterType.INFO)
 
 				abUniqueQuery = SubjectGenerator.create_unique_ab_query(startDate, endDate, str(appBundle['AppId']))
-				Writer.send(abUniqueQuery,WriterType.QUERYWRITER)
 				Writer.send("\t\tRunning AB Unique Query", WriterType.INFO)
 				abUniqueJob = bq_client.query(abUniqueQuery)
-				if(timeOuts):
-					bq_client.wait_for_job(abUniqueJob[0],timeout=1500)
-				else:
-					while(not bq_client.check_job(abUniqueJob[0])[0]):
-						time.sleep(5)
+				wait_for_job(bq_client, abUniqueQuery, abUniqueJob, timeOuts, Writer)
 				Writer.send("\t\tQuery Success", WriterType.INFO)
 				abUniqueResults = bq_client.get_query_rows(abUniqueJob[0])
 				Writer.send("\t\t\t" + str(len(abUniqueResults)) + " Unique Variants Found",WriterType.INFO)
 
 				variantSLQuery = SubjectGenerator.variant_subject_line_query(startDate, endDate, str(appBundle['AppId']))
-				Writer.send(variantSLQuery,WriterType.QUERYWRITER)
 				Writer.send("\t\tRunning AB Subject Line Query", WriterType.INFO)
 				variantSLJob = bq_client.query(variantSLQuery)
-				if(timeOuts):
-					bq_client.wait_for_job(variantSLJob[0],timeout=120)
-				else:
-					while(not bq_client.check_job(variantSLJob[0])[0]):
-						time.sleep(5)
+				wait_for_job(bq_client, variantSLQuery, variantSLJob, timeOuts, Writer)
 				Writer.send("\t\tQuery Success",WriterType.INFO)
 				variantSLResults = bq_client.get_query_rows(variantSLJob[0])
 				Writer.send("\t\t\t" + str(len(variantSLResults)) + " Variant Subject Lines Found", WriterType.INFO)
+				###### QUERY BLOCK
 
 			#Loop through all the MessageId's that we gathered from the AppId
 			for item in subjectResults:
@@ -137,9 +144,6 @@ def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
 						if(int(item['Sent'] == 0)):
 							Writer.send("\t\tINFO: Skipping MessageId :: " + str(item['MessageId']) + " :: due to no `Sent` events for time range",WriterType.DEBUG)
 							break
-
-						#Writer.send(abResults,flush=True)
-						#Writer.send(abUniqueResults,flush=True)
 
 						#Grab messageId startDate
 						messageStartDate = ""
@@ -200,7 +204,6 @@ def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
 							counter = 1
 							#Loop through variants
 							for abData in abDataRows:
-								#Writer.send("Running Variant : " + str(counter) + " = " + str(abData['ExperimentVariant']),flush=True)
 								counter += 1
 
 								delivPct = 0.0
@@ -253,7 +256,6 @@ def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
 
 								file.write(numString.encode('utf-8'))
 								numString = ""
-								#Writer.send("Writing : : : " + str(abData['ExperimentVariant']),flush=True)
 							#Finished looping over AB Variants
 							break
 
@@ -322,7 +324,7 @@ def runSubjectReport(bq_client,companyId, startDate, endDate,timeOuts,debug):
 			file.close()
 			os.remove(fileName)
 			pass
-		Writer.send("\t\tCleaning up dataset . . ",ending="",WriterType.INFO)
+		Writer.send("\t\tCleaning up dataset . . ",WriterType.INFO,ending="")
 		ReportMethods.delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(appBundle['AppId']), dataset='email_report_backups')
 		Writer.send("Clean",WriterType.INFO)
 

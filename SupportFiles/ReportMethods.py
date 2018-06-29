@@ -15,6 +15,10 @@ from SupportFiles import SubjectLineQueryGen as SubjectGenerator
 from SupportFiles import PushNotificationQueryGen as PushGenerator
 from SupportFiles import ReportWriter
 
+#Real strong use of dem' globals yo *sigh
+Writer = ReportWriter.Writer()
+WriterType = ReportWriter.WriterType
+
 def retrieve_backup_files(service, date, bucket, newConvention):
 	"""retrieve all datastore backup file names for the date supplied
 

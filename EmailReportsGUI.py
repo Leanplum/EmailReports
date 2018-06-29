@@ -9,7 +9,7 @@ top = tkinter.Tk()
 choices = {'Company Id', 'App Id'}
 dropDownVar = StringVar()
 dropDownVar.set('Company Id')
-OptionMenu(top,variable=dropDownVar,*choices).grid(row=0,column=0)
+OptionMenu(top,dropDownVar,*choices).grid(row=0,column=0)
 
 E1 = Entry(top, bd = 5)
 E1.grid(row=0, column=1)
@@ -41,30 +41,45 @@ def validDate():
     
 def runDomain():
     try:
-        print('Running Domain Report on Company ID ', E1.get())
+        reportId = str(E1.get())
+        if(dropDownVar.get() == 'Company Id'):
+            print('Running Domain Report on Company ID ' + reportId)
+        else:
+            print('Running Domain Report on App Id ' + reportId)
+            reportId = "__A" + reportId
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'d', str(timeOutVal.get()), (debugValDebug * 2) + debugValInfo)
+            email_data_reports.runReport(reportId,E2.get(),E3.get(),'d', str(timeOutVal.get()), (debugValDebug.get() * 2) + debugValInfo.get())
     except ValueError:
         print("Please Enter Values to Run Report")
     
 def runSubject():
     try:
-        print('Running Subject Report on Company ID ', E1.get())
+        reportId = str(E1.get())
+        if(dropDownVar.get() == 'Company Id'):
+            print('Running Subject Line Report on Company ID ' + reportId)
+        else:
+            print('Running Subject Line Report on App Id ' + reportId)
+            reportId = "__A" + reportId
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),"s" + str(abVal.get()), str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
+            email_data_reports.runReport(reportId,E2.get(),E3.get(),"s" + str(abVal.get()), str(timeOutVal.get()), (debugValDebug.get() * 2)  + debugValInfo.get())
     except ValueError:
         print("Please Enter Values to Run Report")
 
 def runPush():
     try:
-        print('Running Push Report on Company ID ', E1.get())
+        reportId = str(E1.get())
+        if(dropDownVar.get() == 'Company Id'):
+            print('Running Push Report on Company ID ' + reportId)
+        else:
+            print('Running Push Report on App Id ' + reportId)
+            reportId = "__A" + reportId
         if( validDate() ):
-            email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'p', str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
+            email_data_reports.runReport(reportId,E2.get(),E3.get(),'p', str(timeOutVal.get()), (debugValDebug.get() * 2)  + debugValInfo.get())
     except ValueError:
         print("Please Enter Values to Run Report")
 
 def deleteTables():
-    email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'delete', str(timeOutVal.get()), (debugValDebug * 2)  + debugValInfo)
+    email_data_reports.runReport(E1.get(),E2.get(),E3.get(),'delete', str(timeOutVal.get()), (debugValDebug.get() * 2)  + debugValInfo.get())
     
 Button(top, text='Start Subject Report', command=runSubject).grid(row=3,column=0)           
 Button(top, text='Start Domain Report', command=runDomain).grid(row=4,column=0)

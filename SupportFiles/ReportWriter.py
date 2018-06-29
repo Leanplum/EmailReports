@@ -10,10 +10,12 @@ class Writer:
 	info = 0
 	queryWriter = 0
 
-	def send(text,type=WriterType.INFO,ending="\n"):
-		if(type == WriterType.DEBUG and debug):
+	#Method for writing logs
+	def send(self,text,type=WriterType.INFO,ending="\n"):
+		if(type == WriterType.DEBUG and self.debug):
 			print(text,end=ending,flush=True)
-		elif(type == WriterType.INFO and info):
+		elif(type == WriterType.INFO and self.info):
 			print(text,end=ending,flush=True)
-		elif(type == WriterType.QUERYWRITER and queryWriter):
+		#Need to update to write to file
+		elif(type == WriterType.QUERYWRITER and self.queryWriter):
 			print(text,end=ending,flush=True)
