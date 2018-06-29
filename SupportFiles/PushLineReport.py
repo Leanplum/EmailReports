@@ -40,7 +40,9 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 
 	appResults = []
 
+	#Use the prefix '__A' to indicate this is an AppId not a Company Id
 	if(reportId[0:3] == '__A'):
+		#Grab the App name and mimic a BQ result
 		appNameQuery = ds_client.query(kind='App')
 		appKey = ds_client.key('App',int(reportId[3:]))
 		appNameQuery.key_filter(appKey,'=')
@@ -64,6 +66,7 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 		try:
 			Writer.send("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']),WriterType.INFO)
 
+			#Open and create our Report File
 			fileName = "./Reports/PushData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + ".csv"
 			directory = os.path.dirname(fileName)
 			if not os.path.exists(directory):
@@ -71,8 +74,10 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 			file = open(fileName, "wb")
 			file.write("MessageName,StartDate,Sent,Open,Open_PCT,Held Back,Bounce,Bounce_PCT,MessageLink\n".encode('utf-8'))
 
+			#The Study backup wasn't reliable for grabing MessageId's so instead we query the datastore and save the table in BQ
 			ReportMethods.load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(app['AppId']),messageType='p')
 
+			###### QUERY BLOCK
 			pushQuery = PushGenerator.create_push_notification_query(startDate, endDate, str(app['AppId']))
 			pushJob = bq_client.query(pushQuery)
 			Writer.send("\t\tRunning Query for Push", WriterType.INFO)
@@ -86,11 +91,14 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 			wait_for_job(bq_client, pushNameQuery, pushNameJob, timeOuts, Writer)
 			Writer.send("\t\tQuery Success", WriterType.INFO)
 			pushNameResults = bq_client.get_query_rows(pushNameJob[0])
+			###### QUERY BLOCK
 
 			#Loop through results and build report
 			for pushRows in pushResults:
 				for pushName in pushNameResults:
+					#Match our MessageId's with the Message Name's
 					if pushRows['MessageId'] == pushName['MessageId']:
+						#If there are no sents get rid of row
 						if(int(pushRows['Sent']) == 0):
 							break
 						else:
@@ -118,6 +126,7 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 							except AttributeError:
 								pass
 
+							#If there was an error in the above we catch that here and continue
 							if(messageStartDate == ""):
 								Writer.send("\t\t\tDataStore has no record of MessageId STUDY:: " + str(pushRows['MessageId']),WriterType.DEBUG )
 								messageStartDate = "Unknown"
@@ -128,10 +137,13 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 
 							numString = ""
 
+							#Redundancy
 							if(datastorePushName == ""):
 								numString += "\"" + str(pushName['Name']) + "\","
 							else:
 								numString += "\"" + str(datastorePushName) + "\","
+
+							#Write values to file
 							numString += str(messageStartDate) + ","
 							numString += str(pushRows['Sent']) + ","
 							numString += str(pushRows['Open']) + ","
@@ -146,7 +158,7 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 							#Since we are in two for loops we break here since we already matched the name we don't need to continue through the loop
 							break
 			file.close()
-			#Clean up zero records for valid queries
+			#Clean up zero records for valid queries. This usually happens when Unique results don't match with regular results
 			lineCount = 0
 			p = subprocess.Popen(['wc','-l',fileName], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 			result,err = p.communicate()
@@ -166,6 +178,7 @@ def runPushReport(bq_client,reportId, startDate, endDate,timeOuts,Writer):
 			file.close()
 			os.remove(fileName)
 			pass
+		#The Table we wrote to BQ gets erased here
 		Writer.send("\t\tCleaning up dataset . . ",WriterType.INFO,ending="")
 		ReportMethods.delete_generic_table(client=bq_client, table="Push_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
 		Writer.send("Clean",WriterType.INFO)

@@ -122,6 +122,7 @@ def load_table(service, client, date, bucket, dataset, model):
 		#else:
 			#Writer.send("Model : " + model + "_backup - " + date + " Exists", flush=True)
 
+#Remove our Study, Experiment, and App tables over a time period
 def remove_multi_table(client, dateStart, dateEnd, dataset):
 	startDate = datetime.datetime.strptime(str(dateStart), '%Y%m%d')
 	endDate = datetime.datetime.strptime(str(dateEnd), '%Y%m%d')
@@ -134,7 +135,8 @@ def remove_multi_table(client, dateStart, dateEnd, dataset):
 		except:
 			Writer.send("Error Removing Tables",WriterType.DEBUG)
 			return
-			
+
+#Remove our Study, Experiment and App tables for a day
 def remove_table(client, date, dataset):
 	for table_name in ["Study_","App_","Experiment_"]:
 		table_name += date
@@ -143,12 +145,14 @@ def remove_table(client, date, dataset):
 			if(removing != True):
 				Writer.send("Could not delete table :: " + removing,WriterType.DEBUG)
 
+#The Study backup wasn't reliable for grabing MessageId's so instead we query the datastore and save the table in BQ
 def load_message_ids(client, dataset, appId,messageType='e'):
 
 	appId = int(appId)
 
 	ds_client = datastore.Client(project='leanplum')
 
+	#Setup our query to grab the type of MessageId's we are interested in
 	query = ds_client.query(kind='Study')
 	key = ds_client.key('App',appId)
 	query.add_filter('app','=',key)
@@ -159,12 +163,13 @@ def load_message_ids(client, dataset, appId,messageType='e'):
 		query.add_filter('action_type','=','__Push Notification')
 
 	messageList = list(query.fetch())
+	#The list contains entities but we just need the ID's so we map them to a new list
 	emailList = list(map(lambda entity: entity.key.id, messageList))
 
 	Writer.send("\t\tMessageId's found : " + str(len(emailList)), WriterType.INFO )
 	messageIdQuery = create_message_id_list_query(emailList)
 
-	#Try and delete if previous exists
+	#If another instance of the script failed and we didn't make it to cleanup, we attempt cleanup here
 	creation = False
 	if(messageType == 'e'):
 		delete_generic_table(client=client, table="Email_Message_Ids_" + str(appId),dataset=dataset)
@@ -200,6 +205,7 @@ def load_message_ids(client, dataset, appId,messageType='e'):
 	else:
 		Writer.send("Error Creating Table :: " + creation, WriterType.DEBUG )
 
+#Delete a table from BQ
 def delete_generic_table(client, table, dataset):
 	if( client.check_table(dataset=dataset, table=table)):
 		client.delete_table(dataset=dataset, table=table)

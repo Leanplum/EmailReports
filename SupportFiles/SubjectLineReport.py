@@ -19,6 +19,7 @@ from SupportFiles import ReportWriter
 #Real strong use of dem' globals yo *sigh
 WriterType = ReportWriter.WriterType
 
+#When a query is executed this method will either use the standard timeout or wait indefinately tell a success response
 def wait_for_job(bq_client, query, job, timeOuts,Writer):
 	Writer.send(query,WriterType.QUERYWRITER)
 
@@ -37,7 +38,9 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 
 	appResults = []
 
+	#Use the prefix '__A' to indicate this is an AppId not a Company Id
 	if(reportId[0:3] == '__A'):
+		#Grab the App name and mimic a BQ result
 		appNameQuery = ds_client.query(kind='App')
 		appKey = ds_client.key('App',int(reportId[3:]))
 		appNameQuery.key_filter(appKey,'=')
@@ -49,19 +52,22 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 			return
 		appResults = [{'AppName':str(appName),'AppId':str(reportId[3:])}]
 	else:
-		#Create App Id's Query
+		#Lookup App Id's for the company
 		appidsQuery = ReportMethods.create_appids_query(reportId, endDate)
 		appJob = bq_client.query(appidsQuery)
 		wait_for_job(bq_client, appidsQuery, appJob, timeOuts, Writer)
 		appResults = bq_client.get_query_rows(appJob[0])
 
-	#Loop through all App Id's
+	#Loop through all App Id's gathered
 	for appBundle in appResults:
 		Writer.send("\n\tRunning Report on App :: " + appBundle['AppName'] + ":" + str(appBundle['AppId']), WriterType.INFO)
 
+		#The Study backup wasn't reliable for grabing MessageId's so instead we query the datastore and save the table in BQ
 		ReportMethods.load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(appBundle['AppId']), messageType = 'e')
 
 		ds_client = datastore.Client(project='leanplum')
+
+		#We want to get the unsubscribe categories from the datastore since we no longer get a lot of info from the Study backups
 		try:
 			Writer.send("\t\tTapping Datastore for App Categories",WriterType.INFO)
 			appQuery = ds_client.query(kind='App')
@@ -77,6 +83,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 			categoryList = []
 		#In case the query fails because of missing data or a test app
 		try:
+			#Setup our report file
 			fileName = "./Reports/EmailData_" + str(appBundle['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_subject.csv"
 			directory = os.path.dirname(fileName)
 			if not os.path.exists(directory):
@@ -140,6 +147,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 			#Loop through all the MessageId's that we gathered from the AppId
 			for item in subjectResults:
 				for uni in uniqResults:
+					#We need to match up the MessageId's in the regular and unique query. Can be done if BQ but, it becomes to Monolithic
 					if(uni['MessageId'] == item['MessageId']):
 						if(int(item['Sent'] == 0)):
 							Writer.send("\t\tINFO: Skipping MessageId :: " + str(item['MessageId']) + " :: due to no `Sent` events for time range",WriterType.DEBUG)
@@ -176,6 +184,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 						except AttributeError:
 							pass
 
+						#If there was an error in the above we catch that here and continue
 						if(messageStartDate == ""):
 							Writer.send("\t\t\tDataStore has no record of MessageId STUDY:: " + str(item['MessageId']),WriterType.DEBUG )
 							messageStartDate = "Unknown"
@@ -213,6 +222,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 								uniqueClickPct = 0.0
 								spamPct = 0.0
 
+								#Break out our variants here
 								uniAb = {}
 								for abUniqueData in abUniqueDataRows:
 									if( (abData['MessageId'] == abUniqueData['MessageId']) and (abData['ExperimentVariant'] == abUniqueData['ExperimentVariant']) ):
@@ -225,6 +235,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 										variantSL = variantSubjectLines['SubjectLine']
 										break
 
+								#Simple calculations
 								if(float(abData['Sent']) > 0.0):
 									delivPct = float(abData['Delivered'])/float(abData['Sent']) * 100.0
 									bouncePct = float(abData['Bounce'])/float(abData['Sent']) * 100.0
@@ -235,6 +246,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 									uniqueClickPct = float(uniAb['Unique_Click'])/float(abData['Delivered']) * 100.0
 								numString += "\"" + str(variantSL) + " --Variant " + str(abData['ExperimentVariant']) + "\","
 
+								#Write data to report
 								numString += str(messageStartDate) + ","
 								numString += str(abData['Sent']) + ","
 								numString += str(abData['Delivered']) + ","
@@ -268,6 +280,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 							uniqueClickPct = 0.0
 							spamPct = 0.0
 
+							#Simple Calculations
 							if(float(item['Sent']) > 0.0):
 								delivPct = float(item['Delivered'])/float(item['Sent']) * 100.0
 								bouncePct = float(item['Bounce'])/float(item['Sent']) * 100.0
@@ -277,8 +290,11 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 								uniqueOpenPct = float(uni['Unique_Open'])/float(item['Delivered']) * 100.0
 								uniqueClickPct = float(uni['Unique_Click'])/float(item['Delivered']) * 100.0
 							numString += "\"" + item['Subject'] + "\","
-							#Removing MessageID as Excel malforms it.
-							#numString += str(item['MessageId']) + ","
+
+							#Write data to report
+
+							##Removing MessageID as Excel malforms it.
+							##numString += str(item['MessageId']) + ","
 							numString += str(messageStartDate) + ","
 							numString += str(item['Sent']) + ","
 							numString += str(item['Delivered']) + ","
@@ -324,6 +340,7 @@ def runSubjectReport(bq_client,reportId,reportType,startDate, endDate,timeOuts,W
 			file.close()
 			os.remove(fileName)
 			pass
+		#The Table we wrote to BQ gets erased here
 		Writer.send("\t\tCleaning up dataset . . ",WriterType.INFO,ending="")
 		ReportMethods.delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(appBundle['AppId']), dataset='email_report_backups')
 		Writer.send("Clean",WriterType.INFO)

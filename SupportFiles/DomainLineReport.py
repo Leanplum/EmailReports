@@ -19,6 +19,7 @@ from SupportFiles import ReportWriter
 #Real strong use of dem' globals yo *sigh
 WriterType = ReportWriter.WriterType
 
+#When a query is executed this method will either use the standard timeout or wait indefinately tell a success response
 def wait_for_job(bq_client, query, job, timeOuts, Writer):
 	Writer.send(query,WriterType.QUERYWRITER)
 
@@ -37,6 +38,7 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 
 	appResults = []
 
+	#Use the prefix '__A' to indicate this is an AppId not a Company Id
 	if(reportId[0:3] == '__A'):
 		appNameQuery = ds_client.query(kind='App')
 		appKey = ds_client.key('App',int(reportId[3:]))
@@ -62,8 +64,10 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 		try:
 			Writer.send("\n\tRunning Report on App :: " + str(app['AppName']) + ":" + str(app['AppId']),WriterType.INFO)
 
+			#The Study backup wasn't reliable for grabing MessageId's so instead we query the datastore and save the table in BQ
 			ReportMethods.load_message_ids(client=bq_client, dataset='email_report_backups', appId=str(app['AppId']))
 
+			#Setup our report file 
 			fileName = "./Reports/EmailData_" + str(app['AppName']).replace("/","-") + "_" + str(startDate) + "_" + str(endDate) + "_domain.csv"
 			directory = os.path.dirname(fileName)
 			if not os.path.exists(directory):
@@ -161,7 +165,9 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 			#Loop through all results and build report
 			for domainNum in domainResults:
 				for domainUni in domainUniResults:
+					#We need to matchup our rows by messageId and the domain.
 					if(str(domainNum['Domain']) == str(domainUni['Domain']) and str(domainNum['MessageId']) == str(domainUni['MessageId'])):
+						#We need to ensure that the row has sents. Due to the nature of the query you can have duplicate rows. You have two options: 1) Another query to de-dupe. Or in the 2nd to last query we just ID the duplicates. If ID > 1 , it's a duplicate row
 						if(int(domainNum['Sent']) == 0 or int(domainNum['ID']) != 1):
 							if(int(domainNum['Sent']) == 0):
 								Writer.send("\t\tINFO: Skipping MessageId :: " + str(domainNum['MessageId']) + " :: on domain :: " + str(domainNum['Domain']) + " :: due to no `Sent` events for time range",WriterType.DEBUG)
@@ -185,6 +191,7 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 						uniqueClickPct = 0.0
 						spamPct = 0.0
 
+						#Simple Calculations
 						if(float(domainNum['Sent']) > 0.0):
 							delivPct = float(domainNum['Delivered'])/float(domainNum['Sent']) * 100.0
 							bouncePct = float(domainNum['Bounce'])/float(domainNum['Sent']) * 100.0
@@ -194,6 +201,7 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 							uniqueOpenPct = float(domainUni['Unique_Open'])/float(domainNum['Delivered']) * 100.0
 							uniqueClickPct = float(domainUni['Unique_Click'])/float(domainNum['Delivered']) * 100.0
 
+						#We want to keep track of aggregate metrics from the domains so we track a seperate Dict when the MessageId changes
 						if(allCategoryDict['MessageId'] == 0):
 							allCategoryDict['MessageId'] = domainNum['MessageId']
 						elif(allCategoryDict['MessageId'] != domainNum['MessageId']):
@@ -231,6 +239,8 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 								pass
 							except AttributeError:
 								pass
+
+							#If there was an error in the above we catch that here and continue
 							if(messageStartDate == ""):
 								Writer.send("\t\t\tDataStore has no record of MessageId STUDY:: " + str(domainNum['MessageId']),WriterType.DEBUG )
 								messageStartDate = "Unknown"				 
@@ -272,9 +282,11 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 							allCategoryDict = {'MessageName':'','MessageId':0,'SenderDomain':'','Domain':'All','Sent':0,'Delivered':0,'Open':0,'Unique_Open':0,'Unique_Click':0,'Bounce':0,'Dropped':0,'Unsubscribe':0,'Spam':0,'Type':'', 'Category':'Default','MessageLink':''}
 							allCategoryDict['MessageId'] = domainNum['MessageId']
 
+						#Setup the beginning of our Report string and connect to AllDict that was wiped
 						numString += "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\","
 						allCategoryDict['MessageName'] = "\"" + domainNum['MessageName'] + " (" + senderEmail +  ")\""
 
+						#Regex to pull out the proper domain from senderEmail
 						prefix = re.search(".*@",senderEmail).group(0)
 						domain = senderEmail[len(prefix):]
 						numString += str(domain) + ","
@@ -313,10 +325,12 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 							pass
 						except AttributeError:
 							pass
+						#If there was an error in the above we catch that here and continue
 						if(messageStartDate == ""):
 							Writer.send("\t\t\tDataStore has no record of MessageId STUDY:: " + str(domainNum['MessageId']),WriterType.DEBUG )
 							messageStartDate = "Unknown"
 
+						#Write row to Report
 						numString += str(messageStartDate) + ","
 
 						numString += str(domainNum['Sent']) + ","
@@ -389,7 +403,7 @@ def runDomainReport(bq_client,reportId,startDate,endDate,timeOuts, Writer):
 			file.close()
 			os.remove(fileName)
 			pass
-
+		#The Table we wrote to BQ gets erased here
 		Writer.send("\t\tCleaning up dataset . . ",WriterType.INFO,ending="")
 		ReportMethods.delete_generic_table(client=bq_client, table="Email_Message_Ids_" + str(app['AppId']), dataset='email_report_backups')
 		Writer.send("Clean",WriterType.INFO)
